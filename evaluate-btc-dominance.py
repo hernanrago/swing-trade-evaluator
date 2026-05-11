@@ -20,11 +20,13 @@ BTC_DOM_CONF_HIGH_LO = float(os.environ.get("BTC_DOM_CONF_HIGH_LO", "35"))  # < 
 BTC_DOM_CONF_MOD_HI  = float(os.environ.get("BTC_DOM_CONF_MOD_HI",  "55"))  # > this → moderate confidence
 BTC_DOM_CONF_MOD_LO  = float(os.environ.get("BTC_DOM_CONF_MOD_LO",  "40"))  # < this → moderate confidence
 API_TIMEOUT          = int(os.environ.get("API_TIMEOUT",              "10"))
+COINGECKO_API_KEY    = os.environ.get("COINGECKO_API_KEY",            "")
 
 def get_btc_dominance():
     """Fetches BTC dominance data from CoinGecko."""
     url = "https://api.coingecko.com/api/v3/global"
-    resp = requests.get(url, timeout=API_TIMEOUT)
+    headers = {"x-cg-demo-api-key": COINGECKO_API_KEY} if COINGECKO_API_KEY else {}
+    resp = requests.get(url, headers=headers, timeout=API_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     return data["data"]["market_cap_percentage"]["btc"]
