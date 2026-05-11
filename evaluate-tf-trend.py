@@ -11,7 +11,7 @@ import requests
 
 def fetch_klines(pair="BTCUSDT", interval="1d", limit=200):
     """Fetches OHLCV data from Binance."""
-    url = "https://fapi.binance.com/fapi/v1/klines"
+    url = "https://api.binance.com/api/v3/klines"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
