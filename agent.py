@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Swing Trade Agent — core logic.
-Shared by app.py (HTTP server) and swing-trade-agent.py (CLI).
+Shared by app.py (HTTP server) and cli.py (CLI).
 """
 
 import os
