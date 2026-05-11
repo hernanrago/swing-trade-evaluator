@@ -8,53 +8,21 @@ No parameters except the pair.
 import json
 import sys
 import requests
-from datetime import datetime, timedelta
-import random
-
-def generate_mock_candles(pair, interval, limit):
-    """Generates mock candles for demonstration."""
-    candles = []
-    base_price = 63500 if "BTC" in pair else 3500
-    
-    for i in range(limit):
-        noise = random.uniform(-0.005, 0.008)
-        open_p = base_price * (1 + noise * i / limit)
-        close_p = open_p * (1 + random.uniform(-0.002, 0.003))
-        high_p = max(open_p, close_p) * (1 + random.uniform(0, 0.002))
-        low_p = min(open_p, close_p) * (1 - random.uniform(0, 0.002))
-        
-        timestamp = int((datetime.now() - timedelta(days=limit-i)).timestamp() * 1000)
-        
-        candles.append([
-            timestamp,
-            open_p,
-            high_p,
-            low_p,
-            close_p,
-            random.uniform(10000, 50000)
-        ])
-        base_price = close_p
-    
-    return candles
 
 def fetch_klines(pair="BTCUSDT", interval="1d", limit=200):
     """Fetches OHLCV data from Binance."""
-    try:
-        url = "https://fapi.binance.com/fapi/v1/klines"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        params = {
-            "symbol": pair,
-            "interval": interval,
-            "limit": limit
-        }
-        resp = requests.get(url, params=params, headers=headers, timeout=5)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        print(f"[⚠] Using mock data (could not connect to Binance)", file=sys.stderr)
-        return generate_mock_candles(pair, interval, limit)
+    url = "https://fapi.binance.com/fapi/v1/klines"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    params = {
+        "symbol": pair,
+        "interval": interval,
+        "limit": limit
+    }
+    resp = requests.get(url, params=params, headers=headers, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
 
 def calculate_trend(candles, min_required=50):
     """Analyzes candles and determines trend."""
