@@ -82,13 +82,31 @@ TOOLS = [
                 "required": ["pair"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_open_interest",
+            "description": "Analyzes OI change vs price change over a configurable window to validate directional bias. OI rising with price = new positions backing the move (strong signal). OI falling with price = likely liquidations or covering (weak signal). Use as participation validator, not standalone signal.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "string",
+                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
+                    }
+                },
+                "required": ["pair"]
+            }
+        }
     }
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all three tools:
+SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all four tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
 2. evaluate_btc_dominance — gets the BTC dominance impact
 3. evaluate_funding_rate — gets the funding rate as a contrarian filter
+4. evaluate_open_interest — validates whether OI backs the price move
 
 After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
 {
@@ -96,10 +114,11 @@ After receiving all results, respond ONLY with a JSON object. No markdown, no ex
   "confidence": "high", "moderate", or "low",
   "aligned": true if trend and dominance agree, false if they conflict,
   "funding_warning": null or a short warning string if funding is extreme,
-  "reasoning": "2-3 sentence synthesis of all three signals",
+  "reasoning": "2-3 sentence synthesis of all four signals",
   "trend_summary": "one-line summary of the trend signal",
   "dominance_summary": "one-line summary of the dominance signal",
-  "funding_summary": "one-line summary of the funding rate signal"
+  "funding_summary": "one-line summary of the funding rate signal",
+  "oi_summary": "one-line summary of the open interest signal"
 }"""
 
 
@@ -111,6 +130,7 @@ def execute_skill(skill_name, params):
         "evaluate_tf_trend": "./evaluate-tf-trend.py",
         "evaluate_btc_dominance": "./evaluate-btc-dominance.py",
         "evaluate_funding_rate": "./evaluate-funding-rate.py",
+        "evaluate_open_interest": "./evaluate-open-interest.py",
     }
 
     script = script_map.get(skill_name)
