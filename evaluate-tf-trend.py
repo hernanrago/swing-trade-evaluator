@@ -9,46 +9,26 @@ import json
 import sys
 import requests
 
-def _to_yahoo_symbol(pair):
-    """Converts BTCUSDT → BTC-USD for Yahoo Finance."""
-    base = pair.replace("USDT", "").replace("USD", "")
-    return f"{base}-USD"
-
-def _to_yahoo_interval(interval):
-    """Converts Binance interval to Yahoo Finance interval and range."""
-    if interval == "1d":
-        return "1d", "1y"
-    if interval == "1w":
-        return "1wk", "2y"
-    return "1d", "1y"
+def _to_bingx_symbol(pair):
+    """Converts BTCUSDT → BTC-USDT for BingX."""
+    base = pair.replace("USDT", "")
+    return f"{base}-USDT"
 
 def fetch_klines(pair="BTCUSDT", interval="1d", limit=200):
-    """Fetches OHLCV data from Yahoo Finance, returned in Binance candle format."""
-    symbol = _to_yahoo_symbol(pair)
-    yf_interval, yf_range = _to_yahoo_interval(interval)
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    """Fetches OHLCV data from BingX."""
+    url = "https://open-api.bingx.com/openApi/swap/v2/quote/klines"
+    params = {
+        "symbol": _to_bingx_symbol(pair),
+        "interval": interval,
+        "limit": limit,
     }
-    params = {"interval": yf_interval, "range": yf_range}
-    resp = requests.get(url, params=params, headers=headers, timeout=10)
+    resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
     data = resp.json()
-    result = data["chart"]["result"][0]
-    timestamps = result["timestamp"]
-    quote = result["indicators"]["quote"][0]
-    candles = [
-        [
-            ts * 1000,
-            o, h, l, c, v
-        ]
-        for ts, o, h, l, c, v in zip(
-            timestamps,
-            quote["open"], quote["high"], quote["low"], quote["close"], quote["volume"]
-        )
-        if None not in (o, h, l, c)
+    return [
+        [int(c["time"]), float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"]), float(c["volume"])]
+        for c in data["data"]
     ]
-    return candles[-limit:]
 
 def calculate_trend(candles, min_required=50):
     """Analyzes candles and determines trend."""
