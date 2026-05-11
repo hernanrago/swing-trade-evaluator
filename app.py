@@ -6,11 +6,20 @@ LiteLLM orchestrates the analysis, supporting Anthropic, OpenAI, Gemini, and mor
 
 import os
 import json
+import logging
 import subprocess
+import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import litellm
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S"
+)
+log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
@@ -84,8 +93,10 @@ def execute_skill(skill_name, params):
 
     script = script_map.get(skill_name)
     if not script:
+        log.error("Unknown skill: %s", skill_name)
         return {"error": f"Unknown skill: {skill_name}"}
 
+    log.info("Skill %s | pair=%s", skill_name, pair)
     try:
         result = subprocess.run(
             ["python3", script, "--pair", pair],
@@ -95,11 +106,16 @@ def execute_skill(skill_name, params):
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
         if result.returncode != 0:
+            log.error("Skill %s failed: %s", skill_name, result.stderr.strip())
             return {"error": f"Skill error: {result.stderr.strip()}"}
-        return json.loads(result.stdout)
+        parsed = json.loads(result.stdout)
+        log.info("Skill %s OK | result=%s", skill_name, json.dumps(parsed))
+        return parsed
     except json.JSONDecodeError as e:
+        log.error("Skill %s returned invalid JSON: %s", skill_name, e)
         return {"error": f"Invalid JSON from skill: {e}"}
     except Exception as e:
+        log.error("Skill %s exception: %s", skill_name, traceback.format_exc())
         return {"error": str(e)}
 
 
@@ -108,12 +124,14 @@ def run_agent(pair):
     LiteLLM orchestrates the analysis by calling skills as tools.
     Returns the parsed JSON recommendation dict.
     """
+    log.info("Agent start | pair=%s model=%s", pair, LLM_MODEL)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Analyze {pair} for swing trading direction."}
     ]
 
-    for _ in range(MAX_AGENT_ITERATIONS):
+    for iteration in range(1, MAX_AGENT_ITERATIONS + 1):
+        log.info("Iteration %d/%d", iteration, MAX_AGENT_ITERATIONS)
         response = litellm.completion(
             model=LLM_MODEL,
             max_tokens=MAX_TOKENS,
@@ -123,17 +141,22 @@ def run_agent(pair):
 
         message = response.choices[0].message
         finish_reason = response.choices[0].finish_reason
+        log.info("LLM response | finish_reason=%s", finish_reason)
 
         if finish_reason == "stop":
+            log.info("Agent done | raw=%s", message.content)
             try:
                 return json.loads(message.content)
             except json.JSONDecodeError:
+                log.error("Non-JSON response from LLM: %s", message.content)
                 return {"error": "Agent returned non-JSON", "raw": message.content}
 
         elif finish_reason == "tool_calls":
             messages.append(message)
             for tc in message.tool_calls:
-                skill_result = execute_skill(tc.function.name, json.loads(tc.function.arguments))
+                args = json.loads(tc.function.arguments)
+                log.info("Tool call: %s | args=%s", tc.function.name, args)
+                skill_result = execute_skill(tc.function.name, args)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -141,8 +164,10 @@ def run_agent(pair):
                 })
 
         else:
+            log.error("Unexpected finish reason: %s", finish_reason)
             return {"error": f"Unexpected finish reason: {finish_reason}"}
 
+    log.error("Agent did not converge after %d iterations", MAX_AGENT_ITERATIONS)
     return {"error": f"Agent did not converge after {MAX_AGENT_ITERATIONS} iterations"}
 
 
@@ -173,11 +198,15 @@ def evaluate():
             return jsonify({"error": "Missing 'pair' parameter"}), 400
 
         pair = data["pair"].upper()
+        log.info("POST /evaluate | pair=%s", pair)
         recommendation = run_agent(pair)
 
         if "error" in recommendation:
+            log.error("Evaluation failed | %s", recommendation)
             return jsonify(recommendation), 500
 
+        log.info("Evaluation OK | pair=%s direction=%s confidence=%s",
+                 pair, recommendation.get("direction"), recommendation.get("confidence"))
         return jsonify({
             "timestamp": datetime.now().isoformat(),
             "pair": pair,
@@ -185,17 +214,23 @@ def evaluate():
         })
 
     except litellm.AuthenticationError:
+        log.error("Authentication error — check API key for model: %s", LLM_MODEL)
         return jsonify({"error": "Invalid API key for the configured provider"}), 500
     except litellm.RateLimitError:
+        log.warning("Rate limit hit")
         return jsonify({"error": "Rate limit hit — retry later"}), 429
     except litellm.APIError as e:
+        log.error("LLM API error: %s", traceback.format_exc())
         return jsonify({"error": f"LLM API error: {e}"}), 500
     except Exception as e:
+        log.error("Unhandled exception: %s", traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+    log.info("Starting | model=%s max_tokens=%d max_iterations=%d port=%d",
+             LLM_MODEL, MAX_TOKENS, MAX_AGENT_ITERATIONS, port)
     print(f"""
     ╔═══════════════════════════════════════════════════════════╗
     ║   Swing Trade Evaluator API Server (v4 - Multi-provider)  ║
