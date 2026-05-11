@@ -74,19 +74,16 @@ def evaluate():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    print("""
+    port = int(os.environ.get("PORT", 8000))
+    print(f"""
     ╔═══════════════════════════════════════════════════════════╗
     ║   Swing Trade Evaluator API Server                        ║
     ║                                                           ║
-    ║   Running on: http://localhost:8000                      ║
-    ║   Health: http://localhost:8000/health                   ║
-    ║   Evaluate: POST http://localhost:8000/evaluate          ║
-    ║                                                           ║
-    ║   Input:  { "pair": "BTC" }                              ║
-    ║   Output: { trend analysis + recommendation }            ║
-    ║                                                           ║
-    ║   Make sure evaluate-tf-trend.py is in pwd               ║
+    ║   Running on: http://0.0.0.0:{port}                      ║
+    ║   Health: http://0.0.0.0:{port}/health                   ║
+    ║   Evaluate: POST http://0.0.0.0:{port}/evaluate          ║
     ╚═══════════════════════════════════════════════════════════╝
     """)
     
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
+    
