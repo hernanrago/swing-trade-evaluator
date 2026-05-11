@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Skill: Evaluate Open Interest
-Analyzes OI consistency with price movement to validate or question a directional bias.
+Analyzes OI vs price consistency over a window to validate directional bias.
+OI source: Bybit (historical). Price source: BingX (klines).
 """
 
 import os
@@ -10,33 +11,40 @@ import sys
 import requests
 
 # --- Config (override via environment variables) ---
-OI_INTERVAL       = os.environ.get("OI_INTERVAL",       "1h")    # period for OI and price window
-OI_WINDOW         = int(os.environ.get("OI_WINDOW",     "24"))    # number of periods to look back
+OI_INTERVAL       = os.environ.get("OI_INTERVAL",    "1h")   # period for OI and price window
+OI_WINDOW         = int(os.environ.get("OI_WINDOW",  "24"))   # number of periods to look back
 OI_SIGNIFICANT    = float(os.environ.get("OI_SIGNIFICANT",    "0.02"))  # 2% OI change = significant
 PRICE_SIGNIFICANT = float(os.environ.get("PRICE_SIGNIFICANT", "0.01"))  # 1% price change = significant
-API_TIMEOUT       = int(os.environ.get("API_TIMEOUT",   "10"))
+API_TIMEOUT       = int(os.environ.get("API_TIMEOUT", "10"))
 
 def _to_bingx_symbol(pair):
     base = pair.replace("USDT", "")
     return f"{base}-USDT"
 
-def get_current_oi(pair):
-    """Fetches current OI snapshot from BingX."""
-    url = "https://open-api.bingx.com/openApi/swap/v2/quote/openInterest"
-    resp = requests.get(url, params={"symbol": _to_bingx_symbol(pair)}, timeout=API_TIMEOUT)
+def get_oi_history(pair):
+    """Fetches historical OI from Bybit (oldest → newest)."""
+    url = "https://api.bybit.com/v5/market/open-interest"
+    params = {
+        "category":     "linear",
+        "symbol":       pair,
+        "intervalTime": OI_INTERVAL,
+        "limit":        OI_WINDOW + 1
+    }
+    resp = requests.get(url, params=params, timeout=API_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
-    if data.get("code") != 0:
-        raise ValueError(data.get("msg", "OI unavailable"))
-    return float(data["data"]["openInterest"])
+    if data.get("retCode") != 0:
+        raise ValueError(data.get("retMsg", "OI history unavailable"))
+    records = data["result"]["list"]
+    return list(reversed(records))  # Bybit returns newest first
 
 def get_klines(pair):
-    """Fetches recent klines from BingX for price + volume analysis."""
+    """Fetches recent klines from BingX."""
     url = "https://open-api.bingx.com/openApi/swap/v2/quote/klines"
     params = {
-        "symbol": _to_bingx_symbol(pair),
+        "symbol":   _to_bingx_symbol(pair),
         "interval": OI_INTERVAL,
-        "limit": OI_WINDOW + 1
+        "limit":    OI_WINDOW + 1
     }
     resp = requests.get(url, params=params, timeout=API_TIMEOUT)
     resp.raise_for_status()
@@ -44,11 +52,12 @@ def get_klines(pair):
 
 def evaluate_open_interest(pair="BTC"):
     """
-    Validates directional bias using current OI level + volume-confirmed price move.
+    Validates directional bias by checking OI vs price consistency.
 
-    Price up + high volume → real buying demand → LONG validated
-    Price down + high volume → real selling pressure → SHORT validated
-    Price move + low volume → weak conviction, signal is less reliable
+    Price up + OI up → new longs entering → LONG validated
+    Price down + OI up → new shorts entering → SHORT validated
+    Price up + OI down → short covering, not new demand → LONG weak
+    Price down + OI down → long liquidation, not new selling → SHORT weak
     """
     if not pair.endswith("USDT"):
         pair = pair.upper() + "USDT"
@@ -59,49 +68,49 @@ def evaluate_open_interest(pair="BTC"):
     if len(candles) < 2:
         return {"error": "Insufficient price data"}
 
-    oi_usd = get_current_oi(pair)
+    oi_records = get_oi_history(pair)
+    if len(oi_records) < 2:
+        return {"error": "Insufficient OI data"}
 
-    # Price and volume over window
     price_start = float(candles[0]["close"])
     price_end   = float(candles[-1]["close"])
     price_change_pct = (price_end - price_start) / price_start * 100
 
-    volumes = [float(c["volume"]) for c in candles]
-    avg_volume   = sum(volumes) / len(volumes)
-    recent_volume = volumes[-1]
-    volume_ratio  = recent_volume / avg_volume if avg_volume > 0 else 1.0
+    oi_start = float(oi_records[0]["openInterest"])
+    oi_end   = float(oi_records[-1]["openInterest"])
+    oi_change_pct = (oi_end - oi_start) / oi_start * 100
 
     price_up = price_change_pct > 0
-    high_volume = volume_ratio >= 1.0
+    oi_up    = oi_change_pct > 0
 
     price_significant = abs(price_change_pct) >= PRICE_SIGNIFICANT * 100
+    oi_significant    = abs(oi_change_pct)    >= OI_SIGNIFICANT    * 100
 
-    if price_up and high_volume:
+    if price_up and oi_up:
         signal = "LONG"
-        strength = "strong" if price_significant else "moderate"
-        interpretation = "Price rising with above-average volume — buying demand validated."
-        note = "Participation backs the move: volume confirms real demand on the long side."
-    elif not price_up and high_volume:
+        strength = "strong" if price_significant and oi_significant else "moderate"
+        interpretation = "Price rising with new positions entering — bullish move validated."
+        note = "Real demand backing the move: new money is entering on the long side."
+    elif not price_up and oi_up:
         signal = "SHORT"
-        strength = "strong" if price_significant else "moderate"
-        interpretation = "Price falling with above-average volume — selling pressure validated."
-        note = "Participation backs the move: volume confirms real pressure on the short side."
-    elif price_up and not high_volume:
+        strength = "strong" if price_significant and oi_significant else "moderate"
+        interpretation = "Price falling with new positions entering — bearish move validated."
+        note = "Real selling pressure backing the move: new money is entering on the short side."
+    elif price_up and not oi_up:
         signal = "LONG"
         strength = "weak"
-        interpretation = "Price rising but volume below average — low conviction move."
-        note = "Less reliable: price move is not backed by strong participation."
+        interpretation = "Price rising but OI falling — likely short covering, not new buying."
+        note = "Less reliable: upward pressure may come from shorts exiting, not longs entering."
     else:
         signal = "SHORT"
         strength = "weak"
-        interpretation = "Price falling but volume below average — low conviction move."
-        note = "Less reliable: selling not backed by strong participation."
+        interpretation = "Price falling but OI falling — likely long liquidation, not new shorting."
+        note = "Less reliable: downward pressure may come from longs being forced out, not new shorts."
 
     window_label = f"{OI_WINDOW}×{OI_INTERVAL}"
     reasoning = "\n".join([
         f"Price change ({window_label}): {price_change_pct:+.2f}%  (${price_start:,.0f} → ${price_end:,.0f})",
-        f"Volume ratio (last vs avg):  {volume_ratio:.2f}x",
-        f"Current OI: ${oi_usd:,.0f}",
+        f"OI change    ({window_label}): {oi_change_pct:+.2f}%  ({oi_start:,.0f} → {oi_end:,.0f} contracts)",
         "",
         interpretation,
         note,
@@ -110,17 +119,16 @@ def evaluate_open_interest(pair="BTC"):
     ])
 
     return {
-        "pair": pair,
-        "window": window_label,
-        "price_change_pct": round(price_change_pct, 2),
-        "volume_ratio":     round(volume_ratio, 2),
-        "oi_usd":           round(oi_usd, 0),
-        "price_direction":  "up" if price_up else "down",
-        "high_volume":      high_volume,
-        "signal":           signal,
-        "strength":         strength,
-        "interpretation":   interpretation,
-        "reasoning":        reasoning
+        "pair":              pair,
+        "window":            window_label,
+        "price_change_pct":  round(price_change_pct, 2),
+        "oi_change_pct":     round(oi_change_pct, 2),
+        "price_direction":   "up" if price_up else "down",
+        "oi_direction":      "up" if oi_up else "down",
+        "signal":            signal,
+        "strength":          strength,
+        "interpretation":    interpretation,
+        "reasoning":         reasoning
     }
 
 if __name__ == "__main__":
