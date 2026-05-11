@@ -130,11 +130,11 @@ After receiving all results, respond ONLY with a JSON object. No markdown, no ex
 }"""
 
 _SCRIPT_MAP = {
-    "evaluate_tf_trend":     "./evaluate-tf-trend.py",
-    "evaluate_btc_dominance": "./evaluate-btc-dominance.py",
-    "evaluate_funding_rate":  "./evaluate-funding-rate.py",
-    "evaluate_open_interest": "./evaluate-open-interest.py",
-    "evaluate_squeeze_risk":  "./evaluate-squeeze-risk.py",
+    "evaluate_tf_trend":      "./skills/evaluate_tf_trend.py",
+    "evaluate_btc_dominance": "./skills/evaluate_btc_dominance.py",
+    "evaluate_funding_rate":  "./skills/evaluate_funding_rate.py",
+    "evaluate_open_interest": "./skills/evaluate_open_interest.py",
+    "evaluate_squeeze_risk":  "./skills/evaluate_squeeze_risk.py",
 }
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
