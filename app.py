@@ -5,6 +5,7 @@ LiteLLM orchestrates the analysis, supporting Anthropic, OpenAI, Gemini, and mor
 """
 
 import os
+import re
 import json
 import logging
 import subprocess
@@ -148,6 +149,12 @@ def run_agent(pair):
             try:
                 return json.loads(message.content)
             except json.JSONDecodeError:
+                match = re.search(r'\{.*\}', message.content, re.DOTALL)
+                if match:
+                    try:
+                        return json.loads(match.group())
+                    except json.JSONDecodeError:
+                        pass
                 log.error("Non-JSON response from LLM: %s", message.content)
                 return {"error": "Agent returned non-JSON", "raw": message.content}
 
