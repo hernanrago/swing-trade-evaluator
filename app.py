@@ -4,11 +4,12 @@ API Server for Swing Trade Evaluator
 Exposes evaluation endpoint via HTTP.
 """
 
+import os
+import json
+import subprocess
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import subprocess
-import json
-from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
