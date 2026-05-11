@@ -4,24 +4,37 @@ Skill: Evaluate BTC Dominance
 Analyzes Bitcoin dominance trend and its impact on the given pair.
 """
 
+import os
 import json
 import sys
 import requests
 
+# --- Config (override via environment variables) ---
+# Dominance trend thresholds (%)
+BTC_DOM_STRONG_HIGH  = float(os.environ.get("BTC_DOM_STRONG_HIGH",  "55"))  # > this → strong_increasing
+BTC_DOM_MODERATE_HIGH = float(os.environ.get("BTC_DOM_MODERATE_HIGH", "50")) # > this → increasing
+BTC_DOM_MODERATE_LOW  = float(os.environ.get("BTC_DOM_MODERATE_LOW",  "45")) # > this → decreasing, else strong_decreasing
+# Confidence thresholds (%)
+BTC_DOM_CONF_HIGH_HI = float(os.environ.get("BTC_DOM_CONF_HIGH_HI", "60"))  # > this → high confidence
+BTC_DOM_CONF_HIGH_LO = float(os.environ.get("BTC_DOM_CONF_HIGH_LO", "35"))  # < this → high confidence
+BTC_DOM_CONF_MOD_HI  = float(os.environ.get("BTC_DOM_CONF_MOD_HI",  "55"))  # > this → moderate confidence
+BTC_DOM_CONF_MOD_LO  = float(os.environ.get("BTC_DOM_CONF_MOD_LO",  "40"))  # < this → moderate confidence
+API_TIMEOUT          = int(os.environ.get("API_TIMEOUT",              "10"))
+
 def get_btc_dominance():
     """Fetches BTC dominance data from CoinGecko."""
     url = "https://api.coingecko.com/api/v3/global"
-    resp = requests.get(url, timeout=10)
+    resp = requests.get(url, timeout=API_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     return data["data"]["market_cap_percentage"]["btc"]
 
 def estimate_trend(current_dominance):
-    if current_dominance > 55:
+    if current_dominance > BTC_DOM_STRONG_HIGH:
         return "strong_increasing"
-    elif current_dominance > 50:
+    elif current_dominance > BTC_DOM_MODERATE_HIGH:
         return "increasing"
-    elif current_dominance > 45:
+    elif current_dominance > BTC_DOM_MODERATE_LOW:
         return "decreasing"
     else:
         return "strong_decreasing"
@@ -66,9 +79,9 @@ def evaluate_btc_dominance(pair="BTC"):
         reasoning_detail = f"Money flowing to BTC (away from {pair}) = bearish for {pair}" if is_increasing else f"Money flowing to altcoins (including {pair}) = bullish for {pair}"
     
     # Confidence based on how extreme the dominance is
-    if btc_dominance > 60 or btc_dominance < 35:
+    if btc_dominance > BTC_DOM_CONF_HIGH_HI or btc_dominance < BTC_DOM_CONF_HIGH_LO:
         confidence = "high"
-    elif btc_dominance > 55 or btc_dominance < 40:
+    elif btc_dominance > BTC_DOM_CONF_MOD_HI or btc_dominance < BTC_DOM_CONF_MOD_LO:
         confidence = "moderate"
     else:
         confidence = "low"

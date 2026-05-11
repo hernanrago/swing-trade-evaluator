@@ -5,9 +5,17 @@ Analyzes 1D and 1W trend, recommends LONG or SHORT direction.
 No parameters except the pair.
 """
 
+import os
 import json
 import sys
 import requests
+
+# --- Config (override via environment variables) ---
+MA_SHORT_PERIOD  = int(os.environ.get("MA_SHORT_PERIOD",  "50"))
+MA_LONG_PERIOD   = int(os.environ.get("MA_LONG_PERIOD",   "200"))
+KLINES_LIMIT_1D  = int(os.environ.get("KLINES_LIMIT_1D",  "200"))
+KLINES_LIMIT_1W  = int(os.environ.get("KLINES_LIMIT_1W",  "52"))
+API_TIMEOUT      = int(os.environ.get("API_TIMEOUT",       "10"))
 
 def _to_bingx_symbol(pair):
     """Converts BTCUSDT → BTC-USDT for BingX."""
@@ -22,7 +30,7 @@ def fetch_klines(pair="BTCUSDT", interval="1d", limit=200):
         "interval": interval,
         "limit": limit,
     }
-    resp = requests.get(url, params=params, timeout=10)
+    resp = requests.get(url, params=params, timeout=API_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     return [
@@ -30,48 +38,51 @@ def fetch_klines(pair="BTCUSDT", interval="1d", limit=200):
         for c in data["data"]
     ]
 
-def calculate_trend(candles, min_required=50):
+def calculate_trend(candles, min_required=None):
     """Analyzes candles and determines trend."""
+    if min_required is None:
+        min_required = MA_SHORT_PERIOD
+
     if not candles:
         return {"error": "No candles"}
-    
+
     closes = [float(c[4]) for c in candles]
-    
+
     if len(closes) < min_required:
         return {"error": f"Need at least {min_required} candles, got {len(closes)}"}
-    
+
     # Moving averages
-    ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else sum(closes) / len(closes)
-    ma200 = sum(closes[-200:]) / 200 if len(closes) >= 200 else sum(closes) / len(closes)
-    
+    ma_short = sum(closes[-MA_SHORT_PERIOD:]) / MA_SHORT_PERIOD if len(closes) >= MA_SHORT_PERIOD else sum(closes) / len(closes)
+    ma_long  = sum(closes[-MA_LONG_PERIOD:])  / MA_LONG_PERIOD  if len(closes) >= MA_LONG_PERIOD  else sum(closes) / len(closes)
+
     current_price = closes[-1]
-    
+
     # Determines trend
-    if current_price > ma50 > ma200:
+    if current_price > ma_short > ma_long:
         trend = "bullish"
         strength = "strong"
-    elif current_price > ma200 and current_price > ma50:
+    elif current_price > ma_long and current_price > ma_short:
         trend = "bullish"
         strength = "moderate"
-    elif current_price < ma50 < ma200:
+    elif current_price < ma_short < ma_long:
         trend = "bearish"
         strength = "strong"
-    elif current_price < ma200 and current_price < ma50:
+    elif current_price < ma_long and current_price < ma_short:
         trend = "bearish"
         strength = "moderate"
     else:
         trend = "sideways"
         strength = "weak"
-    
+
     return {
         "current_price": round(current_price, 2),
-        "ma50": round(ma50, 2),
-        "ma200": round(ma200, 2),
+        f"ma{MA_SHORT_PERIOD}": round(ma_short, 2),
+        f"ma{MA_LONG_PERIOD}": round(ma_long, 2),
         "trend": trend,
         "strength": strength,
-        "price_above_ma50": current_price > ma50,
-        "price_above_ma200": current_price > ma200,
-        "ma50_above_ma200": ma50 > ma200
+        f"price_above_ma{MA_SHORT_PERIOD}": current_price > ma_short,
+        f"price_above_ma{MA_LONG_PERIOD}": current_price > ma_long,
+        f"ma{MA_SHORT_PERIOD}_above_ma{MA_LONG_PERIOD}": ma_short > ma_long,
     }
 
 def evaluate_tf_trend(pair="BTC"):
@@ -87,14 +98,14 @@ def evaluate_tf_trend(pair="BTC"):
     
     print(f"[*] Evaluating trend for {pair}...", file=sys.stderr)
     print(f"[*] Fetching 1D data...", file=sys.stderr)
-    candles_1d = fetch_klines(pair, "1d", 200)
-    
+    candles_1d = fetch_klines(pair, "1d", KLINES_LIMIT_1D)
+
     print(f"[*] Fetching 1W data...", file=sys.stderr)
-    candles_1w = fetch_klines(pair, "1w", 52)
-    
+    candles_1w = fetch_klines(pair, "1w", KLINES_LIMIT_1W)
+
     # Analyze trends
-    trend_1d = calculate_trend(candles_1d, min_required=50)
-    trend_1w = calculate_trend(candles_1w, min_required=20)
+    trend_1d = calculate_trend(candles_1d, min_required=MA_SHORT_PERIOD)
+    trend_1w = calculate_trend(candles_1w, min_required=max(MA_SHORT_PERIOD // 2, 20))
     
     if "error" in trend_1d or "error" in trend_1w:
         return {"error": f"Calculation error - 1D: {trend_1d.get('error')}, 1W: {trend_1w.get('error')}"}
@@ -106,9 +117,9 @@ def evaluate_tf_trend(pair="BTC"):
     # Recommendation logic:
     # - If both TFs are bullish → LONG (high confidence)
     # - If both TFs are bearish → SHORT (high confidence)
-    # - If mixed → LONG by default (moderate confidence)
+    # - If mixed → follow 1D (moderate confidence)
     # - Sideways → LONG (low confidence, wait for clarity)
-    
+
     if bullish_1d and bullish_1w:
         recommended_direction = "LONG"
         confidence = "high"
@@ -129,12 +140,10 @@ def evaluate_tf_trend(pair="BTC"):
     # Build reasoning
     reasoning = f"""
 1D Trend: {trend_1d['trend'].upper()} ({trend_1d['strength']})
-  Price: {trend_1d['current_price']} | MA50: {trend_1d['ma50']} | MA200: {trend_1d['ma200']}
-  Price > MA50: {trend_1d['price_above_ma50']} | Price > MA200: {trend_1d['price_above_ma200']}
+  Price: {trend_1d['current_price']} | MA{MA_SHORT_PERIOD}: {trend_1d[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_1d[f'ma{MA_LONG_PERIOD}']}
 
 1W Trend: {trend_1w['trend'].upper()} ({trend_1w['strength']})
-  Price: {trend_1w['current_price']} | MA50: {trend_1w['ma50']} | MA200: {trend_1w['ma200']}
-  Price > MA50: {trend_1w['price_above_ma50']} | Price > MA200: {trend_1w['price_above_ma200']}
+  Price: {trend_1w['current_price']} | MA{MA_SHORT_PERIOD}: {trend_1w[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_1w[f'ma{MA_LONG_PERIOD}']}
 
 Recommendation: {recommended_direction}
 Confidence: {confidence.upper()}
