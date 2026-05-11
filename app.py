@@ -99,26 +99,45 @@ TOOLS = [
                 "required": ["pair"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_squeeze_risk",
+            "description": "Detects crowded-trade risk by scoring 5 signals: funding rate, perpetual basis vs spot, long/short account ratio, OI trend, and liquidation bias. Returns crowded_side (long/short/neutral) and risk_level. High score = long crowding (long squeeze risk). Low score = short crowding (short squeeze risk). Must be called to assess whether a trade is entering a crowded position.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "string",
+                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
+                    }
+                },
+                "required": ["pair"]
+            }
+        }
     }
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all four tools:
+SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all five tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
 2. evaluate_btc_dominance — gets the BTC dominance impact
 3. evaluate_funding_rate — gets the funding rate as a contrarian filter
 4. evaluate_open_interest — validates whether OI backs the price move
+5. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
 
 After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
 {
   "direction": "LONG" or "SHORT",
   "confidence": "high", "moderate", or "low",
   "aligned": true if trend and dominance agree, false if they conflict,
-  "funding_warning": null or a short warning string if funding is extreme,
-  "reasoning": "2-3 sentence synthesis of all four signals",
+  "squeeze_warning": null or a short warning string if the planned direction is crowded,
+  "reasoning": "3-4 sentence synthesis of all five signals",
   "trend_summary": "one-line summary of the trend signal",
   "dominance_summary": "one-line summary of the dominance signal",
   "funding_summary": "one-line summary of the funding rate signal",
-  "oi_summary": "one-line summary of the open interest signal"
+  "oi_summary": "one-line summary of the open interest signal",
+  "squeeze_summary": "one-line summary of the squeeze risk"
 }"""
 
 
@@ -131,6 +150,7 @@ def execute_skill(skill_name, params):
         "evaluate_btc_dominance": "./evaluate-btc-dominance.py",
         "evaluate_funding_rate": "./evaluate-funding-rate.py",
         "evaluate_open_interest": "./evaluate-open-interest.py",
+        "evaluate_squeeze_risk": "./evaluate-squeeze-risk.py",
     }
 
     script = script_map.get(skill_name)
