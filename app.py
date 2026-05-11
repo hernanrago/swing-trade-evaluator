@@ -65,21 +65,41 @@ TOOLS = [
                 "required": ["pair"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_funding_rate",
+            "description": "Fetches the current perpetual funding rate for a pair and returns a contrarian bias. High positive funding means crowded longs (bearish warning). High negative funding means crowded shorts (bullish warning). Use as a filter, not a standalone signal.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "string",
+                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
+                    }
+                },
+                "required": ["pair"]
+            }
+        }
     }
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling both tools:
+SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all three tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
 2. evaluate_btc_dominance — gets the BTC dominance impact
+3. evaluate_funding_rate — gets the funding rate as a contrarian filter
 
-After receiving both results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
+After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
 {
   "direction": "LONG" or "SHORT",
   "confidence": "high", "moderate", or "low",
-  "aligned": true if both signals agree, false if they conflict,
-  "reasoning": "2-3 sentence synthesis of both signals",
+  "aligned": true if trend and dominance agree, false if they conflict,
+  "funding_warning": null or a short warning string if funding is extreme,
+  "reasoning": "2-3 sentence synthesis of all three signals",
   "trend_summary": "one-line summary of the trend signal",
-  "dominance_summary": "one-line summary of the dominance signal"
+  "dominance_summary": "one-line summary of the dominance signal",
+  "funding_summary": "one-line summary of the funding rate signal"
 }"""
 
 
@@ -90,6 +110,7 @@ def execute_skill(skill_name, params):
     script_map = {
         "evaluate_tf_trend": "./evaluate-tf-trend.py",
         "evaluate_btc_dominance": "./evaluate-btc-dominance.py",
+        "evaluate_funding_rate": "./evaluate-funding-rate.py",
     }
 
     script = script_map.get(skill_name)
