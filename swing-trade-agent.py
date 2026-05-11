@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-CLI entry point for the Swing Trade Evaluator agent.
-Delegates to app.run_agent — single source of truth for tools and logic.
+CLI entry point for the Swing Trade Evaluator.
+Agent logic lives in agent.py.
 """
 
 import json
-import sys
 import argparse
-from app import run_agent
+from agent import run_agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate crypto swing trade direction")
