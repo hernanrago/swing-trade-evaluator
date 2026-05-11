@@ -21,22 +21,22 @@ def _to_bingx_symbol(pair):
     base = pair.replace("USDT", "")
     return f"{base}-USDT"
 
+def _to_gateio_contract(pair):
+    base = pair.replace("USDT", "")
+    return f"{base}_USDT"
+
 def get_oi_history(pair):
-    """Fetches historical OI from Bybit (oldest → newest)."""
-    url = "https://api.bybit.com/v5/market/open-interest"
+    """Fetches historical OI from Gate.io (oldest → newest)."""
+    url = "https://api.gateio.ws/api/v4/futures/usdt/contract_stats"
     params = {
-        "category":     "linear",
-        "symbol":       pair,
-        "intervalTime": OI_INTERVAL,
-        "limit":        OI_WINDOW + 1
+        "contract": _to_gateio_contract(pair),
+        "interval": OI_INTERVAL,
+        "limit":    OI_WINDOW + 1
     }
     resp = requests.get(url, params=params, timeout=API_TIMEOUT)
     resp.raise_for_status()
-    data = resp.json()
-    if data.get("retCode") != 0:
-        raise ValueError(data.get("retMsg", "OI history unavailable"))
-    records = data["result"]["list"]
-    return list(reversed(records))  # Bybit returns newest first
+    records = resp.json()
+    return records  # Gate.io returns oldest first
 
 def get_klines(pair):
     """Fetches recent klines from BingX."""
@@ -76,8 +76,8 @@ def evaluate_open_interest(pair="BTC"):
     price_end   = float(candles[-1]["close"])
     price_change_pct = (price_end - price_start) / price_start * 100
 
-    oi_start = float(oi_records[0]["openInterest"])
-    oi_end   = float(oi_records[-1]["openInterest"])
+    oi_start = float(oi_records[0]["open_interest_usd"])
+    oi_end   = float(oi_records[-1]["open_interest_usd"])
     oi_change_pct = (oi_end - oi_start) / oi_start * 100
 
     price_up = price_change_pct > 0
@@ -110,7 +110,7 @@ def evaluate_open_interest(pair="BTC"):
     window_label = f"{OI_WINDOW}×{OI_INTERVAL}"
     reasoning = "\n".join([
         f"Price change ({window_label}): {price_change_pct:+.2f}%  (${price_start:,.0f} → ${price_end:,.0f})",
-        f"OI change    ({window_label}): {oi_change_pct:+.2f}%  ({oi_start:,.0f} → {oi_end:,.0f} contracts)",
+        f"OI change    ({window_label}): {oi_change_pct:+.2f}%  (${oi_start:,.0f} → ${oi_end:,.0f})",
         "",
         interpretation,
         note,
