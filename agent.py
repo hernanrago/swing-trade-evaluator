@@ -138,27 +138,46 @@ SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair
 5. evaluate_open_interest — validates whether OI backs the price move
 6. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
 
-Synthesis rules — apply these before writing the JSON:
-- direction: use market_structure.conclusion as the primary signal. If it returns CONFLICT or UNDEFINED, fall back to tf_trend.recommended_direction.
-- aligned: set to true ONLY if evaluate_tf_trend, market_structure.conclusion, and btc_dominance all point in the same direction as the chosen direction. A single conflict makes aligned false.
-- confidence: start at "high". Downgrade to "moderate" if any one of the three directional signals (tf_trend, market_structure, btc_dominance) conflicts with direction. Downgrade to "low" if two or more conflict, OR if squeeze_risk.crowded_side matches the chosen direction (crowded trade risk).
-- squeeze_warning: set a clear warning if squeeze_risk.crowded_side matches direction — entering a crowded position dramatically increases liquidation risk.
-- reasoning: explicitly name any signal that conflicts with the chosen direction. Do not describe a trade as "aligned" or "high confidence" if directional signals disagree.
+### SYNTHESIS ALGORITHM
 
-After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
+After all six tools return results, reason step-by-step inside <thinking> tags before writing the JSON.
+
+Inside <thinking>, you MUST:
+1. List each of the three directional signals and the direction it implies:
+   - Structure: market_structure.conclusion → LONG / SHORT / CONFLICT / UNDEFINED
+   - Trend: tf_trend.recommended_direction → LONG / SHORT
+   - Dominance: btc_dominance direction → LONG / SHORT
+2. Choose direction: use market_structure.conclusion as primary. If CONFLICT or UNDEFINED, fall back to tf_trend.
+3. Count conflicts: how many of the three signals disagree with the chosen direction.
+4. Check squeeze: does squeeze_risk.crowded_side match the chosen direction?
+5. Determine aligned: true ONLY if all three signals agree with direction.
+6. Determine confidence:
+   - "high"     → 0 conflicts AND no squeeze match
+   - "moderate" → 1 conflict OR squeeze match (but not both)
+   - "low"      → 2+ conflicts OR (1 conflict AND squeeze match)
+7. State your conclusion before writing the JSON.
+
+### RESPONSE FORMAT
+
+<thinking>
+(step-by-step reasoning as described above)
+</thinking>
+
+```json
 {
   "direction": "LONG" or "SHORT",
   "confidence": "high", "moderate", or "low",
-  "aligned": true only if tf_trend + market_structure + btc_dominance all agree with direction; false otherwise,
-  "squeeze_warning": null or a short warning string if the planned direction is crowded,
-  "reasoning": "3-4 sentence synthesis of all six signals, explicitly naming any conflicts",
+  "aligned": true or false,
+  "squeeze_warning": null or warning string,
+  "reasoning": "3-4 sentence synthesis naming any conflicts explicitly",
   "trend_summary": "one-line summary of the trend signal",
   "structure_summary": "one-line summary of the market structure signal (4H/1D structure, invalidation level)",
   "dominance_summary": "one-line summary of the dominance signal",
   "funding_summary": "one-line summary of the funding rate signal",
   "oi_summary": "one-line summary of the open interest signal",
   "squeeze_summary": "one-line summary of the squeeze risk"
-}"""
+}
+```"""
 
 _SCRIPT_MAP = {
     "evaluate_tf_trend":          "./skills/evaluate_tf_trend.py",
@@ -219,6 +238,7 @@ def run_agent(pair):
         response = litellm.completion(
             model=LLM_MODEL,
             max_tokens=MAX_TOKENS,
+            temperature=0,
             messages=messages,
             tools=TOOLS,
         )
@@ -229,17 +249,28 @@ def run_agent(pair):
 
         if finish_reason == "stop":
             log.info("Agent done | raw=%s", message.content)
+            content = message.content
+            # 1. Try ```json ... ``` block (preferred — CoT response format)
+            match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    pass
+            # 2. Try bare JSON object
             try:
-                return json.loads(message.content)
+                return json.loads(content)
             except json.JSONDecodeError:
-                match = re.search(r'\{.*\}', message.content, re.DOTALL)
-                if match:
-                    try:
-                        return json.loads(match.group())
-                    except json.JSONDecodeError:
-                        pass
-                log.error("Non-JSON response from LLM: %s", message.content)
-                return {"error": "Agent returned non-JSON", "raw": message.content}
+                pass
+            # 3. Try first {...} block
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+            log.error("Non-JSON response from LLM: %s", content)
+            return {"error": "Agent returned non-JSON", "raw": content}
 
         elif finish_reason == "tool_calls":
             messages.append(message)
