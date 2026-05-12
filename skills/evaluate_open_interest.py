@@ -2,12 +2,13 @@
 """
 Skill: Evaluate Open Interest
 Analyzes OI vs price consistency over a window to validate directional bias.
-OI source: Bybit (historical). Price source: BingX (klines).
+OI source: Binance Futures (openInterestHist). Price source: Binance Futures (klines).
 """
 
 import os
 import json
 import sys
+import argparse
 import requests
 
 # --- Config (override via environment variables) ---
@@ -17,38 +18,45 @@ OI_SIGNIFICANT    = float(os.environ.get("OI_SIGNIFICANT",    "0.02"))  # 2% OI 
 PRICE_SIGNIFICANT = float(os.environ.get("PRICE_SIGNIFICANT", "0.01"))  # 1% price change = significant
 API_TIMEOUT       = int(os.environ.get("API_TIMEOUT", "10"))
 
-def _to_bingx_symbol(pair):
-    base = pair.replace("USDT", "")
-    return f"{base}-USDT"
+BINANCE_FAPI = "https://fapi.binance.com"
 
-def _to_gateio_contract(pair):
-    base = pair.replace("USDT", "")
-    return f"{base}_USDT"
+def _to_binance_symbol(pair):
+    if not pair.endswith("USDT"):
+        return pair.upper() + "USDT"
+    return pair.upper()
 
 def get_oi_history(pair):
-    """Fetches historical OI from Gate.io (oldest → newest)."""
-    url = "https://api.gateio.ws/api/v4/futures/usdt/contract_stats"
+    """Fetches historical OI from Binance Futures (oldest → newest)."""
+    url = f"{BINANCE_FAPI}/futures/data/openInterestHist"
     params = {
-        "contract": _to_gateio_contract(pair),
-        "interval": OI_INTERVAL,
-        "limit":    OI_WINDOW + 1
+        "symbol": _to_binance_symbol(pair),
+        "period": OI_INTERVAL,
+        "limit":  OI_WINDOW + 1,
     }
-    resp = requests.get(url, params=params, timeout=API_TIMEOUT)
-    resp.raise_for_status()
-    records = resp.json()
-    return records  # Gate.io returns oldest first
+    try:
+        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp.raise_for_status()
+        records = resp.json()
+        return sorted(records, key=lambda x: int(x["timestamp"]))
+    except Exception as e:
+        return {"error": f"Binance OI API error: {e}"}
 
 def get_klines(pair):
-    """Fetches recent klines from BingX."""
-    url = "https://open-api.bingx.com/openApi/swap/v2/quote/klines"
+    """Fetches recent klines from Binance Futures (oldest → newest)."""
+    url = f"{BINANCE_FAPI}/fapi/v1/klines"
     params = {
-        "symbol":   _to_bingx_symbol(pair),
+        "symbol":   _to_binance_symbol(pair),
         "interval": OI_INTERVAL,
-        "limit":    OI_WINDOW + 1
+        "limit":    OI_WINDOW + 1,
     }
-    resp = requests.get(url, params=params, timeout=API_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()["data"]
+    try:
+        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        # Each kline: [open_time, open, high, low, close, ...]
+        return sorted(data, key=lambda x: int(x[0]))
+    except Exception as e:
+        return {"error": f"Binance klines API error: {e}"}
 
 def evaluate_open_interest(pair="BTC"):
     """
@@ -65,20 +73,26 @@ def evaluate_open_interest(pair="BTC"):
     print(f"[*] Evaluating open interest for {pair}...", file=sys.stderr)
 
     candles = get_klines(pair)
+    if isinstance(candles, dict) and "error" in candles:
+        return candles
     if len(candles) < 2:
         return {"error": "Insufficient price data"}
 
     oi_records = get_oi_history(pair)
+    if isinstance(oi_records, dict) and "error" in oi_records:
+        return oi_records
     if len(oi_records) < 2:
         return {"error": "Insufficient OI data"}
 
-    price_start = float(candles[0]["close"])
-    price_end   = float(candles[-1]["close"])
-    price_change_pct = (price_end - price_start) / price_start * 100
+    # Binance klines: [open_time, open, high, low, close, ...]
+    price_start = float(candles[0][4])
+    price_end   = float(candles[-1][4])
+    price_change_pct = ((price_end - price_start) / price_start * 100) if price_start > 0 else 0
 
-    oi_start = float(oi_records[0]["open_interest_usd"])
-    oi_end   = float(oi_records[-1]["open_interest_usd"])
-    oi_change_pct = (oi_end - oi_start) / oi_start * 100
+    # Binance OI hist: {"sumOpenInterestValue": "...", "timestamp": ..., ...}
+    oi_start = float(oi_records[0]["sumOpenInterestValue"])
+    oi_end   = float(oi_records[-1]["sumOpenInterestValue"])
+    oi_change_pct = ((oi_end - oi_start) / oi_start * 100) if oi_start > 0 else 0
 
     price_up = price_change_pct > 0
     oi_up    = oi_change_pct > 0
@@ -132,11 +146,9 @@ def evaluate_open_interest(pair="BTC"):
     }
 
 if __name__ == "__main__":
-    pair = "BTC"
+    parser = argparse.ArgumentParser(description="Evaluate Open Interest vs Price consistency.")
+    parser.add_argument("--pair", type=str, default="BTC", help="Trading pair (e.g., BTC or BTCUSDT)")
+    args = parser.parse_args()
 
-    for i, arg in enumerate(sys.argv[1:]):
-        if arg == "--pair" and i + 1 < len(sys.argv) - 1:
-            pair = sys.argv[i + 2]
-
-    result = evaluate_open_interest(pair)
+    result = evaluate_open_interest(args.pair)
     print(json.dumps(result, indent=2))
