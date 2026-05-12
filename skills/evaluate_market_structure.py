@@ -50,3 +50,53 @@ def get_candles(instrument, bar, limit):
         return list(reversed(data["data"]))
     except Exception as e:
         return {"error": f"OKX candles error: {e}"}
+
+
+def find_pivots(candles, n):
+    """
+    Detect confirmed pivot highs and lows.
+    A pivot high at i: high[i] is the maximum of high[i-n:i+n+1],
+      and no candle j > i in the window shares the same maximum (keep most recent).
+    Excludes last n candles (no right-side confirmation).
+    Returns list of {"type": "SH"|"SL", "price": float, "timestamp": str, "index": int},
+    sorted by index (oldest first).
+    """
+    highs = [float(c[2]) for c in candles]
+    lows  = [float(c[3]) for c in candles]
+    timestamps = [c[0] for c in candles]
+    pivots = []
+
+    for i in range(n, len(candles) - n):
+        window_start = i - n
+        window_end   = i + n + 1  # exclusive
+
+        # Pivot high: max in window, no later equal in right half
+        max_high = max(highs[window_start:window_end])
+        if highs[i] == max_high:
+            no_later_equal = not any(
+                highs[j] == max_high for j in range(i + 1, window_end)
+            )
+            if no_later_equal:
+                pivots.append({
+                    "type": "SH",
+                    "price": highs[i],
+                    "timestamp": timestamps[i],
+                    "index": i,
+                })
+
+        # Pivot low: min in window, no later equal in right half
+        min_low = min(lows[window_start:window_end])
+        if lows[i] == min_low:
+            no_later_equal = not any(
+                lows[j] == min_low for j in range(i + 1, window_end)
+            )
+            if no_later_equal:
+                pivots.append({
+                    "type": "SL",
+                    "price": lows[i],
+                    "timestamp": timestamps[i],
+                    "index": i,
+                })
+
+    pivots.sort(key=lambda x: x["index"])
+    return pivots

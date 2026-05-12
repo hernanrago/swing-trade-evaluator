@@ -70,3 +70,57 @@ def test_get_candles_network_error():
         result = get_candles("BTC-USDT-SWAP", "4H", 10)
 
     assert "error" in result
+
+
+from evaluate_market_structure import find_pivots
+
+def _candles_from_hl(hl_pairs):
+    """Build minimal candle list from (high, low) pairs. Timestamps are 1-based."""
+    return [_make_okx_candle(i + 1, h, l) for i, (h, l) in enumerate(hl_pairs)]
+
+def test_find_pivots_basic():
+    # N=2: candle 2 is SH (high=5 is max in window [0..4])
+    # candle 4 is SL (low=1 is min in window [2..6])
+    hl = [
+        (2, 1), (3, 2), (5, 4),   # SH at index 2
+        (4, 3), (3, 1),            # SL at index 4
+        (4, 2), (3, 2),            # last 2: excluded
+    ]
+    candles = _candles_from_hl(hl)
+    pivots = find_pivots(candles, n=2)
+    sh_prices = [p["price"] for p in pivots if p["type"] == "SH"]
+    sl_prices = [p["price"] for p in pivots if p["type"] == "SL"]
+    assert 5.0 in sh_prices
+    assert 1.0 in sl_prices
+
+def test_find_pivots_excludes_last_n_candles():
+    # Last N candles must not appear as pivots even if they look extreme
+    hl = [
+        (2, 1), (3, 2), (5, 4), (4, 3), (3, 2),  # valid range
+        (9, 0), (8, 0),                              # last N=2: must be excluded
+    ]
+    candles = _candles_from_hl(hl)
+    pivots = find_pivots(candles, n=2)
+    pivot_indices = [p["index"] for p in pivots]
+    assert 5 not in pivot_indices
+    assert 6 not in pivot_indices
+
+def test_find_pivots_equal_highs_keeps_most_recent():
+    # Two candles share same max in window: keep most recent (index 4, not 3)
+    hl = [
+        (2, 1), (3, 2), (4, 3), (5, 4), (5, 4), (4, 3), (3, 2),
+    ]
+    candles = _candles_from_hl(hl)
+    pivots = find_pivots(candles, n=2)
+    sh_indices = [p["index"] for p in pivots if p["type"] == "SH" and p["price"] == 5.0]
+    assert sh_indices == [4]  # only index 4, not 3
+
+def test_find_pivots_returns_sorted_by_time():
+    hl = [
+        (1, 0), (3, 2), (5, 4), (3, 1), (2, 0), (3, 1), (4, 2),
+        (2, 0), (1, 0),
+    ]
+    candles = _candles_from_hl(hl)
+    pivots = find_pivots(candles, n=2)
+    indices = [p["index"] for p in pivots]
+    assert indices == sorted(indices)
