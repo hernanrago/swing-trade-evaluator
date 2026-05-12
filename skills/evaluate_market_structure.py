@@ -100,3 +100,37 @@ def find_pivots(candles, n):
 
     pivots.sort(key=lambda x: x["index"])
     return pivots
+
+
+def build_swing_sequence(pivots, tolerance_pct):
+    """
+    Build a strictly alternating SH/SL sequence from raw pivots.
+    Consecutive same-type: keep more extreme (higher SH, lower SL).
+    Equal within tolerance: keep most recent.
+    """
+    tol = tolerance_pct / 100
+    sequence = []
+
+    for pivot in pivots:
+        if not sequence:
+            sequence.append(pivot)
+            continue
+
+        last = sequence[-1]
+        if pivot["type"] != last["type"]:
+            sequence.append(pivot)
+        else:
+            if pivot["type"] == "SH":
+                if pivot["price"] > last["price"] * (1 + tol):
+                    sequence[-1] = pivot   # strictly higher → replace
+                elif pivot["price"] >= last["price"] * (1 - tol):
+                    sequence[-1] = pivot   # within tolerance → keep most recent
+                # else: last is clearly higher → keep last
+            else:  # SL
+                if pivot["price"] < last["price"] * (1 - tol):
+                    sequence[-1] = pivot   # strictly lower → replace
+                elif pivot["price"] <= last["price"] * (1 + tol):
+                    sequence[-1] = pivot   # within tolerance → keep most recent
+                # else: last is clearly lower → keep last
+
+    return sequence

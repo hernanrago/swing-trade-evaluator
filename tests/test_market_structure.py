@@ -124,3 +124,42 @@ def test_find_pivots_returns_sorted_by_time():
     pivots = find_pivots(candles, n=2)
     indices = [p["index"] for p in pivots]
     assert indices == sorted(indices)
+
+
+from evaluate_market_structure import build_swing_sequence
+
+def _pivot(type_, price, ts=1):
+    return {"type": type_, "price": float(price), "timestamp": str(ts), "index": ts}
+
+def test_swing_sequence_already_alternating():
+    pivots = [_pivot("SH", 5, 1), _pivot("SL", 2, 2), _pivot("SH", 7, 3), _pivot("SL", 4, 4)]
+    seq = build_swing_sequence(pivots, tolerance_pct=0.05)
+    assert [s["type"] for s in seq] == ["SH", "SL", "SH", "SL"]
+    assert [s["price"] for s in seq] == [5.0, 2.0, 7.0, 4.0]
+
+def test_swing_sequence_consecutive_sh_keeps_higher():
+    pivots = [_pivot("SH", 5, 1), _pivot("SH", 8, 2), _pivot("SL", 3, 3)]
+    seq = build_swing_sequence(pivots, tolerance_pct=0.05)
+    assert seq[0]["price"] == 8.0
+    assert seq[0]["type"] == "SH"
+
+def test_swing_sequence_consecutive_sl_keeps_lower():
+    pivots = [_pivot("SL", 5, 1), _pivot("SL", 2, 2), _pivot("SH", 8, 3)]
+    seq = build_swing_sequence(pivots, tolerance_pct=0.05)
+    assert seq[0]["price"] == 2.0
+    assert seq[0]["type"] == "SL"
+
+def test_swing_sequence_equal_within_tolerance_keeps_most_recent():
+    pivots = [_pivot("SH", 5000, 1), _pivot("SH", 5001, 2), _pivot("SL", 3000, 3)]
+    seq = build_swing_sequence(pivots, tolerance_pct=0.05)
+    assert seq[0]["price"] == 5001.0
+    assert seq[0]["timestamp"] == "2"
+
+def test_swing_sequence_empty():
+    assert build_swing_sequence([], tolerance_pct=0.05) == []
+
+def test_swing_sequence_single_pivot():
+    pivots = [_pivot("SH", 5, 1)]
+    seq = build_swing_sequence(pivots, tolerance_pct=0.05)
+    assert len(seq) == 1
+    assert seq[0]["price"] == 5.0
