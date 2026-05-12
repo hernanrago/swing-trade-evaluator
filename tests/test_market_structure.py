@@ -23,3 +23,6 @@ def test_normalize_lowercase():
 
 def test_normalize_sol_usdt():
     assert _normalize_pair("SOLUSDT") == "SOL-USDT-SWAP"
+
+def test_normalize_underscore_usdt():
+    assert _normalize_pair("BTC_USDT") == "BTC-USDT-SWAP"

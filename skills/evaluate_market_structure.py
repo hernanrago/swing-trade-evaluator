@@ -25,7 +25,12 @@ def _normalize_pair(pair):
     """Normalize any pair format to an OKX USDT perpetual swap instrument."""
     pair = pair.strip().upper()
     if pair.endswith("-SWAP"):
-        return pair
-    # Strip known suffixes and separators, then rebuild
-    base = pair.replace("-USDT", "").replace("USDT", "").replace("-", "").replace("_", "")
+        pair = pair[:-5]  # strip "-SWAP"
+    if pair.endswith("-USDT"):
+        pair = pair[:-5]  # strip "-USDT"
+    # Remove any remaining separators (e.g. underscores)
+    base = pair.replace("-", "").replace("_", "")
+    # If still has USDT at the end (e.g. "BTCUSDT"), strip it
+    if base.endswith("USDT"):
+        base = base[:-4]
     return f"{base}-USDT-SWAP"
