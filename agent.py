@@ -105,15 +105,38 @@ TOOLS = [
                 "required": ["pair"]
             }
         }
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_market_structure",
+            "description": (
+                "Analyzes market structure on 4H and 1D timeframes using pivot-based swing detection. "
+                "Returns HH/HL (LONG), LH/LL (SHORT), or UNDEFINED per timeframe, plus a combined "
+                "conclusion, confidence level, and invalidation/range levels. "
+                "Call this to assess whether market structure supports the intended trade direction."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "string",
+                        "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"
+                    }
+                },
+                "required": ["pair"]
+            }
+        }
+    },
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all five tools:
+SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all six tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
-2. evaluate_btc_dominance — gets the BTC dominance impact
-3. evaluate_funding_rate — gets the funding rate as a contrarian filter
-4. evaluate_open_interest — validates whether OI backs the price move
-5. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
+2. evaluate_market_structure — analyzes 4H/1D swing structure (HH/HL or LH/LL) and returns invalidation levels
+3. evaluate_btc_dominance — gets the BTC dominance impact
+4. evaluate_funding_rate — gets the funding rate as a contrarian filter
+5. evaluate_open_interest — validates whether OI backs the price move
+6. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
 
 After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
 {
@@ -121,8 +144,9 @@ After receiving all results, respond ONLY with a JSON object. No markdown, no ex
   "confidence": "high", "moderate", or "low",
   "aligned": true if trend and dominance agree, false if they conflict,
   "squeeze_warning": null or a short warning string if the planned direction is crowded,
-  "reasoning": "3-4 sentence synthesis of all five signals",
+  "reasoning": "3-4 sentence synthesis of all six signals",
   "trend_summary": "one-line summary of the trend signal",
+  "structure_summary": "one-line summary of the market structure signal (4H/1D structure, invalidation level)",
   "dominance_summary": "one-line summary of the dominance signal",
   "funding_summary": "one-line summary of the funding rate signal",
   "oi_summary": "one-line summary of the open interest signal",
@@ -130,11 +154,12 @@ After receiving all results, respond ONLY with a JSON object. No markdown, no ex
 }"""
 
 _SCRIPT_MAP = {
-    "evaluate_tf_trend":      "./skills/evaluate_tf_trend.py",
-    "evaluate_btc_dominance": "./skills/evaluate_btc_dominance.py",
-    "evaluate_funding_rate":  "./skills/evaluate_funding_rate.py",
-    "evaluate_open_interest": "./skills/evaluate_open_interest.py",
-    "evaluate_squeeze_risk":  "./skills/evaluate_squeeze_risk.py",
+    "evaluate_tf_trend":          "./skills/evaluate_tf_trend.py",
+    "evaluate_btc_dominance":     "./skills/evaluate_btc_dominance.py",
+    "evaluate_funding_rate":      "./skills/evaluate_funding_rate.py",
+    "evaluate_open_interest":     "./skills/evaluate_open_interest.py",
+    "evaluate_squeeze_risk":      "./skills/evaluate_squeeze_risk.py",
+    "evaluate_market_structure":  "./skills/evaluate_market_structure.py",
 }
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))

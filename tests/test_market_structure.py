@@ -163,3 +163,155 @@ def test_swing_sequence_single_pivot():
     seq = build_swing_sequence(pivots, tolerance_pct=0.05)
     assert len(seq) == 1
     assert seq[0]["price"] == 5.0
+
+
+from evaluate_market_structure import classify_timeframe
+
+def _swings_long():
+    return [
+        _pivot("SH", 82000, 1), _pivot("SL", 78000, 2),
+        _pivot("SH", 85000, 3), _pivot("SL", 80500, 4),
+    ]
+
+def _swings_short():
+    return [
+        _pivot("SH", 85000, 1), _pivot("SL", 80000, 2),
+        _pivot("SH", 83000, 3), _pivot("SL", 77000, 4),
+    ]
+
+def _swings_undefined():
+    return [
+        _pivot("SH", 82000, 1), _pivot("SL", 80000, 2),
+        _pivot("SH", 85000, 3), _pivot("SL", 77000, 4),
+    ]
+
+def test_classify_long_structure():
+    result = classify_timeframe(_swings_long(), tolerance_pct=0.05)
+    assert result["structure"] == "LONG"
+    assert result["high_structure"] == "HH"
+    assert result["low_structure"] == "HL"
+    assert result["higher_high"] is True
+    assert result["higher_low"] is True
+    assert result["lower_high"] is False
+    assert result["lower_low"] is False
+    assert result["invalidation"] == 80500.0
+    assert result["range_high"] is None
+    assert result["range_low"] is None
+
+def test_classify_short_structure():
+    result = classify_timeframe(_swings_short(), tolerance_pct=0.05)
+    assert result["structure"] == "SHORT"
+    assert result["high_structure"] == "LH"
+    assert result["low_structure"] == "LL"
+    assert result["invalidation"] == 83000.0
+    assert result["range_high"] is None
+
+def test_classify_undefined_mixed():
+    result = classify_timeframe(_swings_undefined(), tolerance_pct=0.05)
+    assert result["structure"] == "UNDEFINED"
+    assert result["invalidation"] is None
+    assert result["range_high"] == 85000.0
+    assert result["range_low"] == 77000.0
+    assert result["reason"] == "mixed_structure"
+
+def test_classify_insufficient_swings():
+    result = classify_timeframe([_pivot("SH", 85000, 1), _pivot("SL", 80000, 2)], tolerance_pct=0.05)
+    assert result["structure"] == "UNDEFINED"
+    assert result["reason"] == "insufficient_swings"
+
+def test_classify_last_swing_fields():
+    result = classify_timeframe(_swings_long(), tolerance_pct=0.05)
+    assert result["last_swing_high"] == 85000.0
+    assert result["last_swing_low"] == 80500.0
+    assert len(result["last_swings"]) == 4
+    assert result["last_swings"][-1]["type"] == "SL"
+
+def test_classify_equal_high_within_tolerance():
+    swings = [
+        _pivot("SH", 85000, 1), _pivot("SL", 78000, 2),
+        _pivot("SH", 85010, 3), _pivot("SL", 80000, 4),  # 85010 is within 0.05% of 85000
+    ]
+    result = classify_timeframe(swings, tolerance_pct=0.05)
+    assert result["high_structure"] == "EH"
+    assert result["structure"] == "UNDEFINED"
+
+
+from evaluate_market_structure import combine_conclusions, generate_reasoning
+
+def test_combine_long_long():
+    assert combine_conclusions("LONG", "LONG") == ("LONG", "high")
+
+def test_combine_short_short():
+    assert combine_conclusions("SHORT", "SHORT") == ("SHORT", "high")
+
+def test_combine_long_undefined():
+    assert combine_conclusions("LONG", "UNDEFINED") == ("LONG", "moderate")
+
+def test_combine_undefined_short():
+    assert combine_conclusions("UNDEFINED", "SHORT") == ("SHORT", "moderate")
+
+def test_combine_conflict():
+    assert combine_conclusions("LONG", "SHORT") == ("CONFLICT", "low")
+
+def test_combine_both_undefined():
+    assert combine_conclusions("UNDEFINED", "UNDEFINED") == ("UNDEFINED", "low")
+
+def test_generate_reasoning_long_high():
+    tf_4h = {"structure": "LONG", "invalidation": 80500}
+    tf_1d = {"structure": "LONG", "invalidation": 78000}
+    text = generate_reasoning(tf_4h, tf_1d, "LONG", "high")
+    assert "4H" in text and "1D" in text
+    assert "$80,500" in text
+    assert "$78,000" in text
+
+def test_generate_reasoning_conflict():
+    tf_4h = {"structure": "LONG", "invalidation": 80500}
+    tf_1d = {"structure": "SHORT", "invalidation": 85000}
+    text = generate_reasoning(tf_4h, tf_1d, "CONFLICT", "low")
+    assert "conflict" in text.lower() or "CONFLICT" in text or "4H" in text
+
+
+from evaluate_market_structure import evaluate_market_structure
+
+def _make_200_candles(base_high=85000, base_low=80000, count=200):
+    """Build a trending candle list with clear alternating pivots."""
+    import random
+    random.seed(42)
+    candles = []
+    h = base_high
+    for i in range(count):
+        direction = 1 if (i // 10) % 2 == 0 else -1
+        h = h + direction * random.uniform(50, 200)
+        l = h - random.uniform(200, 500)
+        candles.append(_make_okx_candle(i + 1, h, max(l, 1)))
+    return candles
+
+def test_evaluate_returns_expected_shape():
+    """Integration smoke test: mock both API calls, verify output shape."""
+    candles_200 = _make_200_candles()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "code": "0",
+        "data": list(reversed(candles_200))  # OKX returns newest first
+    }
+
+    with patch("evaluate_market_structure.requests.get", return_value=mock_resp):
+        result = evaluate_market_structure("BTC")
+
+    assert "pair" in result
+    assert "instrument" in result
+    assert "4h" in result
+    assert "1d" in result
+    assert "conclusion" in result
+    assert "confidence" in result
+    assert "reasoning" in result
+    assert result["conclusion"] in ("LONG", "SHORT", "CONFLICT", "UNDEFINED")
+    assert result["confidence"] in ("high", "moderate", "low")
+    assert result["4h"]["structure"] in ("LONG", "SHORT", "UNDEFINED")
+    assert result["1d"]["structure"] in ("LONG", "SHORT", "UNDEFINED")
+
+def test_evaluate_api_error_returns_error_dict():
+    with patch("evaluate_market_structure.requests.get", side_effect=Exception("network error")):
+        result = evaluate_market_structure("BTC")
+    assert "error" in result

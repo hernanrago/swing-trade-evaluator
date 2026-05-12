@@ -134,3 +134,199 @@ def build_swing_sequence(pivots, tolerance_pct):
                 # else: last is clearly lower → keep last
 
     return sequence
+
+
+def classify_timeframe(swings, tolerance_pct):
+    """
+    Classify market structure using last 4 alternating swings.
+    Returns dict with structure, classification booleans, invalidation/range levels, last_swings.
+    """
+    tol = tolerance_pct / 100
+
+    _empty = {
+        "structure": "UNDEFINED", "high_structure": None, "low_structure": None,
+        "higher_high": False, "higher_low": False,
+        "lower_high": False, "lower_low": False,
+        "last_swing_high": None, "last_swing_low": None,
+        "invalidation": None, "range_high": None, "range_low": None,
+        "last_swings": [], "reason": "insufficient_swings",
+    }
+
+    if len(swings) < 4:
+        return _empty
+
+    last4 = swings[-4:]
+    highs_in_seq = [s for s in last4 if s["type"] == "SH"]
+    lows_in_seq  = [s for s in last4 if s["type"] == "SL"]
+
+    if len(highs_in_seq) < 2 or len(lows_in_seq) < 2:
+        return {**_empty, "last_swings": [
+            {"type": s["type"], "price": s["price"], "timestamp": s["timestamp"]} for s in last4
+        ]}
+
+    sh1, sh2 = highs_in_seq[0], highs_in_seq[1]
+    sl1, sl2 = lows_in_seq[0],  lows_in_seq[1]
+
+    if sh2["price"] > sh1["price"] * (1 + tol):
+        high_struct = "HH"
+    elif sh2["price"] < sh1["price"] * (1 - tol):
+        high_struct = "LH"
+    else:
+        high_struct = "EH"
+
+    if sl2["price"] > sl1["price"] * (1 + tol):
+        low_struct = "HL"
+    elif sl2["price"] < sl1["price"] * (1 - tol):
+        low_struct = "LL"
+    else:
+        low_struct = "EL"
+
+    if high_struct == "HH" and low_struct == "HL":
+        structure = "LONG"
+    elif high_struct == "LH" and low_struct == "LL":
+        structure = "SHORT"
+    else:
+        structure = "UNDEFINED"
+
+    last_sh = next(s for s in reversed(swings) if s["type"] == "SH")
+    last_sl = next(s for s in reversed(swings) if s["type"] == "SL")
+
+    if structure == "LONG":
+        invalidation = last_sl["price"]
+        range_high, range_low, reason = None, None, None
+    elif structure == "SHORT":
+        invalidation = last_sh["price"]
+        range_high, range_low, reason = None, None, None
+    else:
+        invalidation = None
+        range_high = last_sh["price"]
+        range_low  = last_sl["price"]
+        reason = "mixed_structure"
+
+    last_swings_out = [
+        {"type": s["type"], "price": s["price"], "timestamp": s["timestamp"]}
+        for s in last4
+    ]
+
+    return {
+        "structure":       structure,
+        "high_structure":  high_struct,
+        "low_structure":   low_struct,
+        "higher_high":     high_struct == "HH",
+        "higher_low":      low_struct == "HL",
+        "lower_high":      high_struct == "LH",
+        "lower_low":       low_struct == "LL",
+        "last_swing_high": last_sh["price"],
+        "last_swing_low":  last_sl["price"],
+        "invalidation":    invalidation,
+        "range_high":      range_high,
+        "range_low":       range_low,
+        "last_swings":     last_swings_out,
+        "reason":          reason,
+    }
+
+
+_CONCLUSION_TABLE = {
+    ("LONG",      "LONG"):      ("LONG",      "high"),
+    ("SHORT",     "SHORT"):     ("SHORT",     "high"),
+    ("LONG",      "UNDEFINED"): ("LONG",      "moderate"),
+    ("SHORT",     "UNDEFINED"): ("SHORT",     "moderate"),
+    ("UNDEFINED", "LONG"):      ("LONG",      "moderate"),
+    ("UNDEFINED", "SHORT"):     ("SHORT",     "moderate"),
+    ("LONG",      "SHORT"):     ("CONFLICT",  "low"),
+    ("SHORT",     "LONG"):      ("CONFLICT",  "low"),
+    ("UNDEFINED", "UNDEFINED"): ("UNDEFINED", "low"),
+}
+
+
+def combine_conclusions(struct_4h, struct_1d):
+    """Returns (conclusion, confidence) from per-timeframe structures."""
+    return _CONCLUSION_TABLE.get((struct_4h, struct_1d), ("UNDEFINED", "low"))
+
+
+def generate_reasoning(tf_4h, tf_1d, conclusion, confidence):
+    """Generate a concise operative reasoning string."""
+    s4 = tf_4h["structure"]
+    s1 = tf_1d["structure"]
+    inv4 = tf_4h.get("invalidation")
+    inv1 = tf_1d.get("invalidation")
+
+    def fmt(v):
+        return f"${v:,.0f}" if v is not None else "N/A"
+
+    if conclusion == "LONG" and confidence == "high":
+        return (
+            f"Both 4H and 1D show HH/HL structure. "
+            f"4H bullish structure valid while price closes above {fmt(inv4)}. "
+            f"1D bullish structure valid while price closes above {fmt(inv1)}."
+        )
+    elif conclusion == "SHORT" and confidence == "high":
+        return (
+            f"Both 4H and 1D show LH/LL structure. "
+            f"4H bearish structure valid while price closes below {fmt(inv4)}. "
+            f"1D bearish structure valid while price closes below {fmt(inv1)}."
+        )
+    elif conclusion in ("LONG", "SHORT") and confidence == "moderate":
+        dominant = "4H" if s4 != "UNDEFINED" else "1D"
+        inv = inv4 if s4 != "UNDEFINED" else inv1
+        direction = "bullish" if conclusion == "LONG" else "bearish"
+        word = "above" if conclusion == "LONG" else "below"
+        return (
+            f"{dominant} shows {s4 if dominant == '4H' else s1} structure ({direction}); "
+            f"the other timeframe is structurally undefined. "
+            f"Structure valid while price closes {word} {fmt(inv)}."
+        )
+    elif conclusion == "CONFLICT":
+        return (
+            f"4H shows {s4} structure while 1D shows {s1} structure. "
+            f"Timeframes conflict — no structural edge. Wait for alignment."
+        )
+    else:
+        return "Both 4H and 1D are structurally undefined. Recent swings do not confirm HH/HL or LH/LL."
+
+
+def evaluate_market_structure(pair="BTC"):
+    """
+    Full analysis: fetch candles, detect swings, classify structure on 4H and 1D.
+    Returns structured JSON dict.
+    """
+    instrument = _normalize_pair(pair)
+    base = instrument.replace("-USDT-SWAP", "")
+    print(f"[*] Evaluating market structure for {instrument}...", file=sys.stderr)
+
+    results = {}
+    for bar, label, n in [("4H", "4h", MS_PIVOT_N_4H), ("1D", "1d", MS_PIVOT_N_1D)]:
+        candles = get_candles(instrument, bar, MS_LOOKBACK)
+        if isinstance(candles, dict) and "error" in candles:
+            return {"pair": base, "instrument": instrument, "error": candles["error"]}
+
+        pivots   = find_pivots(candles, n)
+        sequence = build_swing_sequence(pivots, MS_EQUAL_TOLERANCE_PCT)
+        tf_result = classify_timeframe(sequence, MS_EQUAL_TOLERANCE_PCT)
+        results[label] = tf_result
+        print(f"[*] {bar}: structure={tf_result['structure']}", file=sys.stderr)
+
+    conclusion, confidence = combine_conclusions(
+        results["4h"]["structure"], results["1d"]["structure"]
+    )
+    reasoning = generate_reasoning(results["4h"], results["1d"], conclusion, confidence)
+
+    return {
+        "pair":       base,
+        "instrument": instrument,
+        "4h":         results["4h"],
+        "1d":         results["1d"],
+        "conclusion": conclusion,
+        "confidence": confidence,
+        "reasoning":  reasoning,
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Evaluate market structure on 4H and 1D.")
+    parser.add_argument("--pair", type=str, default="BTC",
+                        help="Trading pair (e.g., BTC, BTCUSDT, BTC-USDT-SWAP)")
+    args = parser.parse_args()
+
+    result = evaluate_market_structure(args.pair)
+    print(json.dumps(result, indent=2))
