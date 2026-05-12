@@ -138,13 +138,20 @@ SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair
 5. evaluate_open_interest — validates whether OI backs the price move
 6. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
 
+Synthesis rules — apply these before writing the JSON:
+- direction: use market_structure.conclusion as the primary signal. If it returns CONFLICT or UNDEFINED, fall back to tf_trend.recommended_direction.
+- aligned: set to true ONLY if evaluate_tf_trend, market_structure.conclusion, and btc_dominance all point in the same direction as the chosen direction. A single conflict makes aligned false.
+- confidence: start at "high". Downgrade to "moderate" if any one of the three directional signals (tf_trend, market_structure, btc_dominance) conflicts with direction. Downgrade to "low" if two or more conflict, OR if squeeze_risk.crowded_side matches the chosen direction (crowded trade risk).
+- squeeze_warning: set a clear warning if squeeze_risk.crowded_side matches direction — entering a crowded position dramatically increases liquidation risk.
+- reasoning: explicitly name any signal that conflicts with the chosen direction. Do not describe a trade as "aligned" or "high confidence" if directional signals disagree.
+
 After receiving all results, respond ONLY with a JSON object. No markdown, no explanation outside the JSON:
 {
   "direction": "LONG" or "SHORT",
   "confidence": "high", "moderate", or "low",
-  "aligned": true if trend and dominance agree, false if they conflict,
+  "aligned": true only if tf_trend + market_structure + btc_dominance all agree with direction; false otherwise,
   "squeeze_warning": null or a short warning string if the planned direction is crowded,
-  "reasoning": "3-4 sentence synthesis of all six signals",
+  "reasoning": "3-4 sentence synthesis of all six signals, explicitly naming any conflicts",
   "trend_summary": "one-line summary of the trend signal",
   "structure_summary": "one-line summary of the market structure signal (4H/1D structure, invalidation level)",
   "dominance_summary": "one-line summary of the dominance signal",
