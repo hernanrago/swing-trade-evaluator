@@ -34,3 +34,19 @@ def _normalize_pair(pair):
     if base.endswith("USDT"):
         base = base[:-4]
     return f"{base}-USDT-SWAP"
+
+
+def get_candles(instrument, bar, limit):
+    """Fetch candles from OKX. Returns list sorted oldest → newest, or {"error": ...}."""
+    url = f"{OKX_API}/api/v5/market/candles"
+    params = {"instId": instrument, "bar": bar, "limit": limit}
+    try:
+        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "0":
+            return {"error": f"OKX API error: {data.get('msg')}"}
+        # OKX returns newest first → reverse for oldest first
+        return list(reversed(data["data"]))
+    except Exception as e:
+        return {"error": f"OKX candles error: {e}"}
