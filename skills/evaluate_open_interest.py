@@ -2,7 +2,7 @@
 """
 Skill: Evaluate Open Interest
 Analyzes OI vs price consistency over a window to validate directional bias.
-OI source: Binance Futures (openInterestHist). Price source: Binance Futures (klines).
+OI source: OKX (open-interest-history). Price source: OKX (klines).
 """
 
 import os
@@ -18,45 +18,64 @@ OI_SIGNIFICANT    = float(os.environ.get("OI_SIGNIFICANT",    "0.02"))  # 2% OI 
 PRICE_SIGNIFICANT = float(os.environ.get("PRICE_SIGNIFICANT", "0.01"))  # 1% price change = significant
 API_TIMEOUT       = int(os.environ.get("API_TIMEOUT", "10"))
 
-BINANCE_FAPI = "https://fapi.binance.com"
+OKX_API = "https://www.okx.com"
 
-def _to_binance_symbol(pair):
-    if not pair.endswith("USDT"):
-        return pair.upper() + "USDT"
-    return pair.upper()
+# OKX uses uppercase H/D for hours/days in both endpoints
+_INTERVAL_MAP = {
+    "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1H", "2h": "2H", "4h": "4H", "6h": "6H", "12h": "12H",
+    "1d": "1D",
+}
+
+def _to_okx_swap(pair):
+    base = pair.replace("USDT", "").upper()
+    return f"{base}-USDT-SWAP"
+
+def _to_okx_ccy(pair):
+    return pair.replace("USDT", "").upper()
 
 def get_oi_history(pair):
-    """Fetches historical OI from Binance Futures (oldest → newest)."""
-    url = f"{BINANCE_FAPI}/futures/data/openInterestHist"
+    """Fetches historical OI from OKX (oldest → newest)."""
+    url = f"{OKX_API}/api/v5/rubik/stat/contracts/open-interest-history"
+    interval = _INTERVAL_MAP.get(OI_INTERVAL, OI_INTERVAL)
     params = {
-        "symbol": _to_binance_symbol(pair),
-        "period": OI_INTERVAL,
+        "instId": _to_okx_swap(pair),
+        "period": interval,
         "limit":  OI_WINDOW + 1,
     }
     try:
         resp = requests.get(url, params=params, timeout=API_TIMEOUT)
         resp.raise_for_status()
-        records = resp.json()
-        return sorted(records, key=lambda x: int(x["timestamp"]))
+        data = resp.json()
+        if data.get("code") != "0":
+            return {"error": f"OKX OI API error: {data.get('msg')}"}
+        records = data["data"]
+        # OKX returns newest first → reverse for oldest first
+        # Each record: [timestamp, oi_contracts, oi_base_ccy, oi_usd]
+        return list(reversed(records))
     except Exception as e:
-        return {"error": f"Binance OI API error: {e}"}
+        return {"error": f"OKX OI API error: {e}"}
 
 def get_klines(pair):
-    """Fetches recent klines from Binance Futures (oldest → newest)."""
-    url = f"{BINANCE_FAPI}/fapi/v1/klines"
+    """Fetches recent klines from OKX (oldest → newest)."""
+    url = f"{OKX_API}/api/v5/market/candles"
+    interval = _INTERVAL_MAP.get(OI_INTERVAL, OI_INTERVAL)
     params = {
-        "symbol":   _to_binance_symbol(pair),
-        "interval": OI_INTERVAL,
-        "limit":    OI_WINDOW + 1,
+        "instId": _to_okx_swap(pair),
+        "bar":    interval,
+        "limit":  OI_WINDOW + 1,
     }
     try:
         resp = requests.get(url, params=params, timeout=API_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        # Each kline: [open_time, open, high, low, close, ...]
-        return sorted(data, key=lambda x: int(x[0]))
+        if data.get("code") != "0":
+            return {"error": f"OKX klines API error: {data.get('msg')}"}
+        records = data["data"]
+        # OKX returns newest first → reverse for oldest first
+        return list(reversed(records))
     except Exception as e:
-        return {"error": f"Binance klines API error: {e}"}
+        return {"error": f"OKX klines API error: {e}"}
 
 def evaluate_open_interest(pair="BTC"):
     """
@@ -84,14 +103,14 @@ def evaluate_open_interest(pair="BTC"):
     if len(oi_records) < 2:
         return {"error": "Insufficient OI data"}
 
-    # Binance klines: [open_time, open, high, low, close, ...]
+    # OKX klines: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
     price_start = float(candles[0][4])
     price_end   = float(candles[-1][4])
     price_change_pct = ((price_end - price_start) / price_start * 100) if price_start > 0 else 0
 
-    # Binance OI hist: {"sumOpenInterestValue": "...", "timestamp": ..., ...}
-    oi_start = float(oi_records[0]["sumOpenInterestValue"])
-    oi_end   = float(oi_records[-1]["sumOpenInterestValue"])
+    # OKX OI hist: [timestamp, oi_contracts, oi_base_ccy, oi_usd]
+    oi_start = float(oi_records[0][2])   # OI in base currency (BTC, ETH, etc.)
+    oi_end   = float(oi_records[-1][2])
     oi_change_pct = ((oi_end - oi_start) / oi_start * 100) if oi_start > 0 else 0
 
     price_up = price_change_pct > 0
@@ -122,9 +141,10 @@ def evaluate_open_interest(pair="BTC"):
         note = "Less reliable: downward pressure may come from longs being forced out, not new shorts."
 
     window_label = f"{OI_WINDOW}×{OI_INTERVAL}"
+    ccy = _to_okx_ccy(pair)
     reasoning = "\n".join([
         f"Price change ({window_label}): {price_change_pct:+.2f}%  (${price_start:,.0f} → ${price_end:,.0f})",
-        f"OI change    ({window_label}): {oi_change_pct:+.2f}%  (${oi_start:,.0f} → ${oi_end:,.0f})",
+        f"OI change    ({window_label}): {oi_change_pct:+.2f}%  ({oi_start:,.2f} → {oi_end:,.2f} {ccy})",
         "",
         interpretation,
         note,
