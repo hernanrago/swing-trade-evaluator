@@ -128,15 +128,38 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_entry_zone",
+            "description": (
+                "Evaluates whether a clear, technically justified, risk-manageable entry zone exists "
+                "for the current setup. Combines support/resistance, FVG, order block, Fibonacci, "
+                "range/retest/sweep context, and structure-based invalidation. Returns pass/fail rating "
+                "for the checklist item only (not an entry signal)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pair": {
+                        "type": "string",
+                        "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"
+                    }
+                },
+                "required": ["pair"]
+            }
+        }
+    },
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all six tools:
+SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all seven tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
 2. evaluate_market_structure — analyzes 4H/1D swing structure (HH/HL or LH/LL) and returns invalidation levels
 3. evaluate_btc_dominance — gets the BTC dominance impact
 4. evaluate_funding_rate — gets the funding rate as a contrarian filter
 5. evaluate_open_interest — validates whether OI backs the price move
 6. evaluate_squeeze_risk — detects crowded-trade risk (long/short squeeze risk)
+7. evaluate_entry_zone — validates if there is a technically acceptable, risk-manageable entry zone
 
 ### SYNTHESIS ALGORITHM
 
@@ -175,7 +198,8 @@ Inside <thinking>, you MUST:
   "dominance_summary": "one-line summary of the dominance signal",
   "funding_summary": "one-line summary of the funding rate signal",
   "oi_summary": "one-line summary of the open interest signal",
-  "squeeze_summary": "one-line summary of the squeeze risk"
+  "squeeze_summary": "one-line summary of the squeeze risk",
+  "entry_zone_summary": "one-line summary of entry-zone quality and rating"
 }
 ```"""
 
@@ -186,6 +210,7 @@ _SCRIPT_MAP = {
     "evaluate_open_interest":     "./skills/evaluate_open_interest.py",
     "evaluate_squeeze_risk":      "./skills/evaluate_squeeze_risk.py",
     "evaluate_market_structure":  "./skills/evaluate_market_structure.py",
+    "evaluate_entry_zone":        "./skills/evaluate_entry_zone.py",
 }
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))

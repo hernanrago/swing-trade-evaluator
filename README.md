@@ -25,7 +25,7 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 ### 🕯️ Technical Setup
 
 - [ ] 🤖 Clear market structure on 4H/1D (HH-HL for longs, LH-LL for shorts), including invalidation/range levels — `evaluate_market_structure`
-- [ ] 👤 Entry zone defined (support/resistance, FVG, OB, Fibonacci retracement)
+- [ ] 🤖 Entry zone defined (support/resistance, FVG, OB, Fibonacci retracement) — `evaluate_entry_zone`
 - [ ] 👤 Confluence of at least 2 indicators or levels at entry
 - [ ] 👤 Volume confirms the setup (do not enter against growing volume in the opposite direction)
 - [ ] 👤 No significant RSI or MACD divergence against the trade
@@ -67,3 +67,4 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 | `evaluate_funding_rate` | Funding rate level and directional bias |
 | `evaluate_open_interest` | OI vs price consistency — validates or weakens the directional bias |
 | `evaluate_squeeze_risk` | Crowded trade detection — combines funding, L/S ratio, basis, OI, and liquidation bias |
+| `evaluate_entry_zone` | Entry-zone quality validator — detects confluence zones (S/R, FVG, OB, Fibonacci, range/retest/sweep), rating, and structural invalidation |
