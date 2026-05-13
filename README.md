@@ -24,7 +24,7 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 
 ### 🕯️ Technical Setup
 
-- [ ] 👤 Clear market structure on 4H/1D (HH-HL for longs, LH-LL for shorts)
+- [ ] 🤖 Clear market structure on 4H/1D (HH-HL for longs, LH-LL for shorts), including invalidation/range levels — `evaluate_market_structure`
 - [ ] 👤 Entry zone defined (support/resistance, FVG, OB, Fibonacci retracement)
 - [ ] 👤 Confluence of at least 2 indicators or levels at entry
 - [ ] 👤 Volume confirms the setup (do not enter against growing volume in the opposite direction)
@@ -62,6 +62,7 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 | Skill | What it evaluates |
 |---|---|
 | `evaluate_tf_trend` | 1D and 1W trend direction — recommends LONG or SHORT |
+| `evaluate_market_structure` | 4H and 1D swing structure (HH/HL, LH/LL, or undefined), with combined conclusion, confidence, and invalidation/range levels |
 | `evaluate_btc_dominance` | Whether BTC dominance supports the expected move |
 | `evaluate_funding_rate` | Funding rate level and directional bias |
 | `evaluate_open_interest` | OI vs price consistency — validates or weakens the directional bias |
