@@ -101,13 +101,23 @@ def evaluate_all():
         if not tickers:
             return {"error": "No ticker data returned from BingX"}, 502
 
+        usdt_tickers = [t for t in tickers if "-USDT" in t.get("symbol", "")]
         sorted_tickers = sorted(
-            tickers,
+            usdt_tickers,
             key=lambda x: float(x.get("quoteVolume", 0) or 0),
             reverse=True
         )
-        top10 = [t["symbol"] for t in sorted_tickers[:10]]
-        log.info("Top 10 by quoteVolume: %s", top10)
+        seen = set()
+        top10 = []
+        for t in sorted_tickers:
+            base = t["symbol"].split("-USDT")[0]
+            if base not in seen:
+                seen.add(base)
+                top10.append(t["symbol"])
+            if len(top10) >= 10:
+                break
+
+        log.info("Top 10 unique base pairs by quoteVolume: %s", top10)
 
         pairs = [t.replace("-USDT-SWAP", "") for t in top10]
         evaluations = run_agent_batch(pairs)
