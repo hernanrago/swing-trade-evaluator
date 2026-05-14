@@ -290,7 +290,7 @@ def generate_reasoning(tf_4h, tf_1d, conclusion, confidence):
         return "Both 4H and 1D are structurally undefined. Recent swings do not confirm HH/HL or LH/LL."
 
 
-def evaluate_market_structure(pair="BTC"):
+def evaluate_market_structure(pair="BTC", context=None):
     """
     Full analysis: fetch candles, detect swings, classify structure on 4H and 1D.
     Returns structured JSON dict.

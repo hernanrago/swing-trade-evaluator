@@ -547,7 +547,7 @@ def _find_narrow_subzone(zone, current_price, direction, max_width_pct=2.0):
     return candidates[0]
 
 
-def evaluate_entry_zone(pair="BTC"):
+def evaluate_entry_zone(pair="BTC", context=None):
     instrument, base = _to_okx_swap(pair)
     print(f"[*] Evaluating entry zone for {instrument}...", file=sys.stderr)
 
@@ -570,7 +570,7 @@ def evaluate_entry_zone(pair="BTC"):
             "summary": "Cannot evaluate entry zone without market structure data.",
         }
 
-    ms = evaluate_market_structure(base)
+    ms = evaluate_market_structure(base, context=context)
     ms_direction = ms.get("conclusion", "UNDEFINED")
 
     if ms_direction not in ("LONG", "SHORT"):

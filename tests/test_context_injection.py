@@ -111,3 +111,38 @@ def test_squeeze_risk_fetches_all_when_no_context():
     with patch("evaluate_squeeze_risk.requests.get", side_effect=side_effect) as mock_get:
         evaluate_squeeze_risk("BTC", context=None)
     assert mock_get.call_count == 3
+
+
+# ── Task 5: consistent context=None signatures ─────────────────────────────
+
+def test_skills_accept_context_none():
+    """All skills must accept context=None without raising TypeError."""
+    import inspect, importlib
+    for mod_name, fn_name in [
+        ("evaluate_open_interest",    "evaluate_open_interest"),
+        ("evaluate_tf_trend",         "evaluate_tf_trend"),
+        ("evaluate_market_structure", "evaluate_market_structure"),
+    ]:
+        mod = importlib.import_module(mod_name)
+        fn  = getattr(mod, fn_name)
+        sig = inspect.signature(fn)
+        assert "context" in sig.parameters, f"{fn_name} missing context param"
+        assert sig.parameters["context"].default is None, f"{fn_name} context default is not None"
+
+def test_entry_zone_passes_context_to_market_structure():
+    """evaluate_entry_zone must forward context to evaluate_market_structure."""
+    import evaluate_entry_zone as ez
+
+    ms_result = {
+        "conclusion": "LONG", "4H": {"structure": "LONG"}, "1D": {"structure": "LONG"},
+        "invalidation_level": 95000.0, "range_high": 110000.0, "range_low": 95000.0,
+    }
+    candles = [[str(i * 1000), "100", "110", "90", "105", "1000", "1"] for i in range(1, 230)]
+
+    with patch("evaluate_entry_zone.evaluate_market_structure") as mock_ms, \
+         patch("evaluate_entry_zone._get_candles", return_value=candles):
+        mock_ms.return_value = ms_result
+        ctx = {"btc_dominance": 52.0}
+        ez.evaluate_entry_zone("BTC", context=ctx)
+        _, kwargs = mock_ms.call_args
+        assert kwargs.get("context") == ctx

@@ -85,7 +85,7 @@ def calculate_trend(candles, min_required=None):
         f"ma{MA_SHORT_PERIOD}_above_ma{MA_LONG_PERIOD}": ma_short > ma_long,
     }
 
-def evaluate_tf_trend(pair="BTC"):
+def evaluate_tf_trend(pair="BTC", context=None):
     """
     Analyzes 1D/1W trend and recommends direction.
     Input: pair (e.g., BTC)

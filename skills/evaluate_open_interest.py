@@ -77,7 +77,7 @@ def get_klines(pair):
     except Exception as e:
         return {"error": f"OKX klines API error: {e}"}
 
-def evaluate_open_interest(pair="BTC"):
+def evaluate_open_interest(pair="BTC", context=None):
     """
     Validates directional bias by checking OI vs price consistency.
 
