@@ -41,24 +41,25 @@ def estimate_trend(current_dominance):
     else:
         return "strong_decreasing"
 
-def evaluate_btc_dominance(pair="BTC"):
+def evaluate_btc_dominance(pair="BTC", context=None):
     """
     Evaluates BTC dominance and its impact on the given pair.
-    
+
     For BTC: High/rising dominance = bullish (money flowing to BTC)
     For altcoins: High/rising dominance = bearish (money flowing away from altcoins)
     """
-    
+
     pair = pair.upper()
-    
+
     print(f"[*] Evaluating BTC dominance impact for {pair}...", file=sys.stderr)
-    
-    # Fetch current BTC dominance
-    btc_dominance = get_btc_dominance()
-    
+
+    btc_dominance = (context or {}).get("btc_dominance")
+    if btc_dominance is None:
+        btc_dominance = get_btc_dominance()
+
     if btc_dominance is None:
         return {"error": "Could not fetch BTC dominance data"}
-    
+
     # Estimate trend
     trend = estimate_trend(btc_dominance)
     
