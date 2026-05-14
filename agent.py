@@ -11,6 +11,10 @@ import logging
 import subprocess
 import traceback
 import litellm
+from datetime import datetime, timedelta
+import functools
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +23,98 @@ LLM_MODEL            = os.environ.get("LLM_MODEL",             "claude-opus-4-7"
 MAX_TOKENS           = int(os.environ.get("MAX_TOKENS",           "4096"))
 MAX_AGENT_ITERATIONS = int(os.environ.get("MAX_AGENT_ITERATIONS",  "10"))
 SUBPROCESS_TIMEOUT   = int(os.environ.get("SUBPROCESS_TIMEOUT",    "30"))
+MAX_BATCH_WORKERS    = int(os.environ.get("MAX_BATCH_WORKERS", "10"))
+
+# --- Timed cache decorator ---
+def timed_cache(seconds=300):
+    """Simple TTL cache for zero-argument callables."""
+    def decorator(fn):
+        _cache = {}
+        @functools.wraps(fn)
+        def wrapper():
+            now = datetime.now()
+            if "v" not in _cache or now - _cache["t"] > timedelta(seconds=seconds):
+                _cache["v"] = fn()
+                _cache["t"] = now
+            return _cache["v"]
+        return wrapper
+    return decorator
+
+
+# --- Shared data fetchers ---
+_COINGECKO_IDS = {
+    "BTC": "bitcoin",    "ETH": "ethereum",   "SOL": "solana",
+    "BNB": "binancecoin","XRP": "ripple",     "ADA": "cardano",
+    "DOGE": "dogecoin",  "DOT": "polkadot",   "AVAX": "avalanche-2",
+    "LINK": "chainlink", "ATOM": "cosmos",    "LTC": "litecoin",
+    "NEAR": "near",      "UNI": "uniswap",    "MATIC": "matic-network",
+}
+_COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
+
+
+@timed_cache(seconds=300)
+def _cached_btc_dominance():
+    headers = {"x-cg-demo-api-key": _COINGECKO_API_KEY} if _COINGECKO_API_KEY else {}
+    resp = requests.get("https://api.coingecko.com/api/v3/global", headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()["data"]["market_cap_percentage"]["btc"]
+
+
+@timed_cache(seconds=60)
+def _cached_premium_index():
+    """Fetches all BingX perpetual premiumIndex entries in one call (no symbol param)."""
+    resp = requests.get(
+        "https://open-api.bingx.com/openApi/swap/v2/quote/premiumIndex",
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data", [])
+    return {
+        item["symbol"]: {
+            "lastFundingRate": float(item["lastFundingRate"]),
+            "markPrice":       float(item["markPrice"]),
+        }
+        for item in data
+        if "symbol" in item and "lastFundingRate" in item
+    }
+
+
+def _fetch_spot_prices_batch(pairs):
+    """Fetches spot prices for all pairs in one CoinGecko call."""
+    bases = [p.replace("USDT", "").upper() for p in pairs]
+    ids   = [_COINGECKO_IDS[b] for b in bases if b in _COINGECKO_IDS]
+    if not ids:
+        return {}
+    headers = {"x-cg-demo-api-key": _COINGECKO_API_KEY} if _COINGECKO_API_KEY else {}
+    resp = requests.get(
+        "https://api.coingecko.com/api/v3/simple/price",
+        params={"ids": ",".join(ids), "vs_currencies": "usd"},
+        headers=headers,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    raw = resp.json()
+    id_to_base = {v: k for k, v in _COINGECKO_IDS.items()}
+    return {id_to_base[cg_id]: data["usd"] for cg_id, data in raw.items() if cg_id in id_to_base}
+
+
+def _build_batch_context(pairs):
+    """Pre-fetches all shareable data for the batch. Partial failures are swallowed."""
+    ctx = {}
+    try:
+        ctx["btc_dominance"] = _cached_btc_dominance()
+    except Exception as e:
+        log.warning("Pre-fetch btc_dominance failed: %s", e)
+    try:
+        ctx["premium_index"] = _cached_premium_index()
+    except Exception as e:
+        log.warning("Pre-fetch premium_index failed: %s", e)
+    try:
+        ctx["spot_prices"] = _fetch_spot_prices_batch(pairs)
+    except Exception as e:
+        log.warning("Pre-fetch spot_prices failed: %s", e)
+    return ctx
+
 
 TOOLS = [
     {
@@ -214,6 +310,37 @@ _SCRIPT_MAP = {
 }
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# --- In-process function map ---
+def _get_function_map():
+    import sys as _sys
+    skills_dir = os.path.join(_BASE_DIR, "skills")
+    if skills_dir not in _sys.path:
+        _sys.path.insert(0, skills_dir)
+    from evaluate_btc_dominance    import evaluate_btc_dominance
+    from evaluate_funding_rate     import evaluate_funding_rate
+    from evaluate_squeeze_risk     import evaluate_squeeze_risk
+    from evaluate_open_interest    import evaluate_open_interest
+    from evaluate_tf_trend         import evaluate_tf_trend
+    from evaluate_market_structure import evaluate_market_structure
+    from evaluate_entry_zone       import evaluate_entry_zone
+    return {
+        "evaluate_btc_dominance":    evaluate_btc_dominance,
+        "evaluate_funding_rate":     evaluate_funding_rate,
+        "evaluate_squeeze_risk":     evaluate_squeeze_risk,
+        "evaluate_open_interest":    evaluate_open_interest,
+        "evaluate_tf_trend":         evaluate_tf_trend,
+        "evaluate_market_structure": evaluate_market_structure,
+        "evaluate_entry_zone":       evaluate_entry_zone,
+    }
+
+_FUNCTION_MAP = None
+
+def _skill_fn(name):
+    global _FUNCTION_MAP
+    if _FUNCTION_MAP is None:
+        _FUNCTION_MAP = _get_function_map()
+    return _FUNCTION_MAP.get(name)
 
 
 def execute_skill(skill_name, params):
