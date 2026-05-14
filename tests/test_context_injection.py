@@ -44,3 +44,25 @@ def test_btc_dominance_fetches_when_no_context():
         result = evaluate_btc_dominance("BTC", context=None)
     mock_get.assert_called_once()
     assert result["btc_dominance"] == 52.0
+
+
+# ── Task 3: evaluate_funding_rate ─────────────────────────────────────────
+
+def test_funding_rate_uses_context_skips_http():
+    from evaluate_funding_rate import evaluate_funding_rate
+    ctx = {"premium_index": {"BTC-USDT": {"lastFundingRate": 0.00015, "markPrice": 103500.0}}}
+    with patch("evaluate_funding_rate.requests.get") as mock_get:
+        result = evaluate_funding_rate("BTC", context=ctx)
+    mock_get.assert_not_called()
+    assert result["funding_rate"] == 0.00015
+
+def test_funding_rate_fetches_when_no_context():
+    from evaluate_funding_rate import evaluate_funding_rate
+    mock_resp = MagicMock(**{
+        "raise_for_status.return_value": None,
+        "json.return_value": {"data": {"lastFundingRate": "0.0001"}},
+    })
+    with patch("evaluate_funding_rate.requests.get", return_value=mock_resp) as mock_get:
+        result = evaluate_funding_rate("BTC", context=None)
+    mock_get.assert_called_once()
+    assert result["funding_rate"] == 0.0001

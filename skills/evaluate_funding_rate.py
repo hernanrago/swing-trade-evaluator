@@ -30,7 +30,7 @@ def get_funding_rate(pair):
     data = resp.json()
     return float(data["data"]["lastFundingRate"])
 
-def evaluate_funding_rate(pair="BTC"):
+def evaluate_funding_rate(pair="BTC", context=None):
     """
     Evaluates funding rate as a contrarian filter.
 
@@ -43,7 +43,13 @@ def evaluate_funding_rate(pair="BTC"):
 
     print(f"[*] Evaluating funding rate for {pair}...", file=sys.stderr)
 
-    funding_rate = get_funding_rate(pair)
+    bingx_sym = _to_bingx_symbol(pair)
+    pm = (context or {}).get("premium_index", {}).get(bingx_sym)
+    if pm is not None:
+        funding_rate = float(pm["lastFundingRate"])
+    else:
+        funding_rate = get_funding_rate(pair)
+
     funding_pct = funding_rate * 100  # for display
 
     if funding_rate > FUNDING_VERY_HIGH:
