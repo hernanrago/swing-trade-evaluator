@@ -385,7 +385,7 @@ def execute_skill(skill_name, params, context=None):
         return {"error": str(e)}
 
 
-def run_agent(pair):
+def run_agent(pair, context=None):
     """
     Orchestrates the analysis via LiteLLM, calling skills as tools.
     Returns the parsed JSON recommendation dict.
@@ -440,7 +440,7 @@ def run_agent(pair):
             for tc in message.tool_calls:
                 args = json.loads(tc.function.arguments)
                 log.info("Tool call: %s | args=%s", tc.function.name, args)
-                skill_result = execute_skill(tc.function.name, args)
+                skill_result = execute_skill(tc.function.name, args, context=context)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -456,14 +456,12 @@ def run_agent(pair):
 
 
 def run_agent_batch(pairs):
-    """
-    Runs run_agent for each pair and returns a list of recommendation dicts.
-    Skips pairs that return an error dict.
-    """
+    context = _build_batch_context(pairs)
+    log.info("Batch context built | keys=%s", list(context.keys()))
     results = []
     for pair in pairs:
         log.info("Batch evaluating pair=%s", pair)
-        rec = run_agent(pair)
+        rec = run_agent(pair, context=context)
         if "error" not in rec:
             rec["pair"] = pair
             results.append(rec)

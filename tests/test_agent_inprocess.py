@@ -92,3 +92,31 @@ def test_execute_skill_passes_context_to_function():
         from agent import execute_skill
         execute_skill("evaluate_btc_dominance", {"pair": "BTC"}, context=ctx)
     mock_skill.assert_called_once_with("BTC", context=ctx)
+
+
+# ── Task 8: context wiring ─────────────────────────────────────────────────
+
+def test_run_agent_batch_builds_context_once_for_n_pairs():
+    """_build_batch_context called once regardless of pair count."""
+    mock_rec = {"direction": "LONG", "confidence": "high", "aligned": True,
+                "squeeze_warning": None, "reasoning": "", "trend_summary": "",
+                "structure_summary": "", "dominance_summary": "", "funding_summary": "",
+                "oi_summary": "", "squeeze_summary": "", "entry_zone_summary": ""}
+    with patch("agent._build_batch_context", return_value={}) as mock_ctx, \
+         patch("agent.run_agent", return_value=mock_rec):
+        from agent import run_agent_batch
+        run_agent_batch(["BTC", "ETH", "SOL"])
+    mock_ctx.assert_called_once_with(["BTC", "ETH", "SOL"])
+
+def test_run_agent_receives_context():
+    """run_agent must accept context=None without TypeError."""
+    stop_response = MagicMock()
+    stop_response.choices[0].finish_reason = "stop"
+    stop_response.choices[0].message.content = '{"direction":"LONG","confidence":"high","aligned":true,"squeeze_warning":null,"reasoning":"r","trend_summary":"t","structure_summary":"s","dominance_summary":"d","funding_summary":"f","oi_summary":"o","squeeze_summary":"sq","entry_zone_summary":"ez"}'
+    stop_response.choices[0].message.tool_calls = None
+
+    with patch("agent.litellm.completion", return_value=stop_response):
+        from agent import run_agent
+        ctx = {"btc_dominance": 52.0, "premium_index": {}, "spot_prices": {}}
+        result = run_agent("BTC", context=ctx)
+    assert "direction" in result
