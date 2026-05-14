@@ -463,8 +463,7 @@ def run_agent_batch(pairs):
         log.info("Batch evaluating pair=%s", pair)
         rec = run_agent(pair, context=context)
         if "error" not in rec:
-            rec["pair"] = pair
-            results.append(rec)
+            results.append({**rec, "pair": pair})
         else:
             log.warning("Skipping pair=%s due to error: %s", pair, rec.get("error"))
     return results
