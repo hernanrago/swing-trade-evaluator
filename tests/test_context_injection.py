@@ -5,15 +5,6 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
-@pytest.fixture(autouse=True)
-def clear_candles_cache():
-    """Clear the candles cache before and after each test."""
-    import evaluate_market_structure as ms
-    ms._CANDLES_CACHE.clear()
-    yield
-    ms._CANDLES_CACHE.clear()
-
-
 # ── Task 1: candle cache ────────────────────────────────────────────────────
 
 def _okx_candles_response(n=5):
