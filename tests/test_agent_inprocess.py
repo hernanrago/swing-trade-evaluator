@@ -60,3 +60,35 @@ def test_build_batch_context_tolerates_fetch_error():
         from agent import _build_batch_context
         ctx = _build_batch_context(["BTC"])
     assert "btc_dominance" not in ctx
+
+
+# ── Task 7: execute_skill in-process ──────────────────────────────────────
+
+def test_execute_skill_calls_function_not_subprocess():
+    with patch("agent._skill_fn") as mock_fn_lookup, \
+         patch("agent.subprocess.run") as mock_sub:
+        mock_skill = MagicMock(return_value={"direction": "LONG"})
+        mock_fn_lookup.return_value = mock_skill
+        from agent import execute_skill
+        result = execute_skill("evaluate_btc_dominance", {"pair": "BTC"})
+    mock_sub.assert_not_called()
+    mock_skill.assert_called_once_with("BTC", context=None)
+    assert result == {"direction": "LONG"}
+
+def test_execute_skill_falls_back_to_subprocess_when_not_in_map():
+    completed = MagicMock(returncode=0, stdout='{"ok": true}', stderr="")
+    with patch("agent._skill_fn", return_value=None), \
+         patch("agent.subprocess.run", return_value=completed) as mock_sub:
+        from agent import execute_skill
+        execute_skill("evaluate_btc_dominance", {"pair": "BTC"})
+    mock_sub.assert_called_once()
+
+def test_execute_skill_passes_context_to_function():
+    ctx = {"btc_dominance": 55.0}
+    with patch("agent._skill_fn") as mock_fn_lookup, \
+         patch("agent.subprocess.run"):
+        mock_skill = MagicMock(return_value={"direction": "LONG"})
+        mock_fn_lookup.return_value = mock_skill
+        from agent import execute_skill
+        execute_skill("evaluate_btc_dominance", {"pair": "BTC"}, context=ctx)
+    mock_skill.assert_called_once_with("BTC", context=ctx)

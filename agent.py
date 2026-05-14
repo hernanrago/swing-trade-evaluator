@@ -343,28 +343,39 @@ def _skill_fn(name):
     return _FUNCTION_MAP.get(name)
 
 
-def execute_skill(skill_name, params):
-    """Runs a skill script via subprocess and returns parsed JSON."""
+def execute_skill(skill_name, params, context=None):
+    """Calls a skill in-process if available, otherwise falls back to subprocess."""
     pair = params.get("pair", "BTC").upper()
+    log.info("Skill %s | pair=%s", skill_name, pair)
+
+    fn = _skill_fn(skill_name)
+    if fn is not None:
+        try:
+            result = fn(pair, context=context)
+            log.info("Skill %s OK (in-process) | result=%s", skill_name, json.dumps(result))
+            return result
+        except Exception as e:
+            log.error("Skill %s in-process error: %s", skill_name, traceback.format_exc())
+            return {"error": str(e)}
+
+    # Fallback: subprocess (for skills not in _FUNCTION_MAP)
     script = _SCRIPT_MAP.get(skill_name)
     if not script:
         log.error("Unknown skill: %s", skill_name)
         return {"error": f"Unknown skill: {skill_name}"}
-
-    log.info("Skill %s | pair=%s", skill_name, pair)
     try:
         result = subprocess.run(
             ["python3", script, "--pair", pair],
             capture_output=True,
             text=True,
             timeout=SUBPROCESS_TIMEOUT,
-            cwd=_BASE_DIR
+            cwd=_BASE_DIR,
         )
         if result.returncode != 0:
             log.error("Skill %s failed: %s", skill_name, result.stderr.strip())
             return {"error": f"Skill error: {result.stderr.strip()}"}
         parsed = json.loads(result.stdout)
-        log.info("Skill %s OK | result=%s", skill_name, json.dumps(parsed))
+        log.info("Skill %s OK (subprocess) | result=%s", skill_name, json.dumps(parsed))
         return parsed
     except json.JSONDecodeError as e:
         log.error("Skill %s returned invalid JSON: %s", skill_name, e)
