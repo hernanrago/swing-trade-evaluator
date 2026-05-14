@@ -75,7 +75,7 @@ def _cached_premium_index():
             "markPrice":       float(item["markPrice"]),
         }
         for item in data
-        if "symbol" in item and "lastFundingRate" in item
+        if "symbol" in item and "lastFundingRate" in item and "markPrice" in item
     }
 
 
