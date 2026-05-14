@@ -6,6 +6,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills'))
 import pytest
 from evaluate_market_structure import _normalize_pair
 
+
+@pytest.fixture(autouse=True)
+def clear_candles_cache():
+    """Clear the candles cache before and after each test."""
+    import evaluate_market_structure as ms
+    ms._CANDLES_CACHE.clear()
+    yield
+    ms._CANDLES_CACHE.clear()
+
 def test_normalize_bare_symbol():
     assert _normalize_pair("BTC") == "BTC-USDT-SWAP"
 

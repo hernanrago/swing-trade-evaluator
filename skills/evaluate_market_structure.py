@@ -19,6 +19,7 @@ MS_EQUAL_TOLERANCE_PCT = float(os.environ.get("MS_EQUAL_TOLERANCE_PCT", "0.05"))
 API_TIMEOUT            = int(os.environ.get("API_TIMEOUT",             "10"))
 
 OKX_API = "https://www.okx.com"
+_CANDLES_CACHE = {}
 
 
 def _normalize_pair(pair):
@@ -38,6 +39,9 @@ def _normalize_pair(pair):
 
 def get_candles(instrument, bar, limit):
     """Fetch candles from OKX. Returns list sorted oldest → newest, or {"error": ...}."""
+    cache_key = (instrument, bar, limit)
+    if cache_key in _CANDLES_CACHE:
+        return _CANDLES_CACHE[cache_key]
     url = f"{OKX_API}/api/v5/market/candles"
     params = {"instId": instrument, "bar": bar, "limit": limit}
     try:
@@ -46,8 +50,9 @@ def get_candles(instrument, bar, limit):
         data = resp.json()
         if data.get("code") != "0":
             return {"error": f"OKX API error: {data.get('msg')}"}
-        # OKX returns newest first → reverse for oldest first
-        return list(reversed(data["data"]))
+        result = list(reversed(data["data"]))
+        _CANDLES_CACHE[cache_key] = result
+        return result
     except Exception as e:
         return {"error": f"OKX candles error: {e}"}
 
