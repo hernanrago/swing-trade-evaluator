@@ -7,12 +7,13 @@ HTTP interface — agent logic lives in agent.py.
 import os
 import logging
 import traceback
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import litellm
 
-from agent import run_agent, LLM_MODEL, MAX_TOKENS, MAX_AGENT_ITERATIONS, SUBPROCESS_TIMEOUT
+from agent import run_agent, run_agent_batch, run_synthesis, LLM_MODEL, MAX_TOKENS, MAX_AGENT_ITERATIONS, SUBPROCESS_TIMEOUT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +76,54 @@ def evaluate():
     except litellm.APIError as e:
         log.error("LLM API error: %s", traceback.format_exc())
         return {"error": f"LLM API error: {e}"}, 500
+    except Exception as e:
+        log.error("Unhandled exception: %s", traceback.format_exc())
+        return {"error": str(e)}, 500
+
+
+@app.route("/evaluate-all", methods=["POST"])
+def evaluate_all():
+    """
+    Fetches top 10 pairs by quoteVolume from BingX ticker endpoint,
+    evaluates each, and returns a ranked synthesis.
+    Input:  {} (no payload required)
+    Output: { "timestamp": "...", "ranked": [...] }
+    """
+    try:
+        log.info("POST /evaluate-all")
+
+        url = "https://open-api.bingx.com/openApi/swap/v2/quote/ticker"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        raw = resp.json()
+
+        tickers = raw.get("data", [])
+        if not tickers:
+            return {"error": "No ticker data returned from BingX"}, 502
+
+        sorted_tickers = sorted(
+            tickers,
+            key=lambda x: float(x.get("quoteVolume", 0) or 0),
+            reverse=True
+        )
+        top10 = [t["symbol"] for t in sorted_tickers[:10]]
+        log.info("Top 10 by quoteVolume: %s", top10)
+
+        pairs = [t.replace("-USDT-SWAP", "") for t in top10]
+        evaluations = run_agent_batch(pairs)
+
+        if not evaluations:
+            return {"error": "All evaluations failed"}, 502
+
+        ranked = run_synthesis(evaluations)
+
+        log.info("evaluate-all OK | evaluated=%d ranked=%d", len(evaluations), len(ranked) if isinstance(ranked, list) else 0)
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "ranked": ranked if isinstance(ranked, list) else [],
+            "evaluations": evaluations
+        }
+
     except Exception as e:
         log.error("Unhandled exception: %s", traceback.format_exc())
         return {"error": str(e)}, 500

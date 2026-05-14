@@ -315,3 +315,104 @@ def run_agent(pair):
 
     log.error("Agent did not converge after %d iterations", MAX_AGENT_ITERATIONS)
     return {"error": f"Agent did not converge after {MAX_AGENT_ITERATIONS} iterations"}
+
+
+def run_agent_batch(pairs):
+    """
+    Runs run_agent for each pair and returns a list of recommendation dicts.
+    Skips pairs that return an error dict.
+    """
+    results = []
+    for pair in pairs:
+        log.info("Batch evaluating pair=%s", pair)
+        rec = run_agent(pair)
+        if "error" not in rec:
+            rec["pair"] = pair
+            results.append(rec)
+        else:
+            log.warning("Skipping pair=%s due to error: %s", pair, rec.get("error"))
+    return results
+
+
+_MULTI_SYSTEM_PROMPT = """You are a crypto swing trade analyst. Below is an array of evaluations for multiple pairs. Each entry contains the full analysis for one symbol.
+
+```json
+{evaluations}
+```
+
+### YOUR TASK
+
+Review the array and produce a ranked summary:
+
+1. Rank the pairs by swing trading quality: direction, confidence, aligned, squeeze_warning.
+2. Identify the top 3 opportunities (best LONG candidates and best SHORT candidates).
+3. Flag any pairs with high squeeze risk.
+4. Highlight conflicts between signals per pair.
+
+### RESPONSE FORMAT
+
+<thinking>
+(rank by opportunity quality, note key conflicts, note squeeze warnings)
+</thinking>
+
+```json
+[
+  {
+    "rank": 1,
+    "pair": "BTCUSDT",
+    "direction": "LONG",
+    "confidence": "high",
+    "aligned": true,
+    "squeeze_warning": null,
+    "summary": "2-3 sentence synthesis"
+  },
+  ...
+]
+```"""
+
+
+def run_synthesis(evaluations):
+    """
+    Sends a batch of per-pair evaluations to the LLM for ranked synthesis.
+    Returns a list of ranked recommendation dicts.
+    """
+    log.info("Synthesis start | num_pairs=%d", len(evaluations))
+
+    for eval_item in evaluations:
+        if "pair" not in eval_item:
+            eval_item["pair"] = "UNKNOWN"
+
+    messages = [
+        {"role": "system", "content": _MULTI_SYSTEM_PROMPT},
+        {"role": "user", "content": f"Synthesize the following {len(evaluations)} evaluations:\n\n{json.dumps(evaluations, indent=2)}"}
+    ]
+
+    response = litellm.completion(
+        model=LLM_MODEL,
+        max_tokens=MAX_TOKENS,
+        temperature=0,
+        messages=messages,
+    )
+
+    content = response.choices[0].message.content
+    log.info("Synthesis done | raw=%s", content[:200])
+
+    match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r'\[.*\]', content, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    log.error("Synthesis returned non-JSON: %s", content)
+    return {"error": "Synthesis returned non-JSON", "raw": content}
