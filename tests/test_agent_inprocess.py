@@ -120,3 +120,55 @@ def test_run_agent_receives_context():
         ctx = {"btc_dominance": 52.0, "premium_index": {}, "spot_prices": {}}
         result = run_agent("BTC", context=ctx)
     assert "direction" in result
+
+
+# ── Task 10: ThreadPoolExecutor ────────────────────────────────────────────
+
+def test_run_agent_batch_runs_pairs_concurrently():
+    """At least 2 pairs must run simultaneously."""
+    import threading
+    active_at_once = []
+    lock = threading.Lock()
+    running = [0]
+
+    def slow_agent(pair, context=None):
+        with lock:
+            running[0] += 1
+            active_at_once.append(running[0])
+        import time; time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+        return {"direction": "LONG", "confidence": "high"}
+
+    with patch("agent._build_batch_context", return_value={}), \
+         patch("agent.run_agent", side_effect=slow_agent):
+        from agent import run_agent_batch
+        run_agent_batch(["BTC", "ETH", "SOL", "XRP"])
+
+    assert max(active_at_once) >= 2, "Pairs are running serially, not in parallel"
+
+def test_run_agent_batch_collects_all_successful_results():
+    def fake_agent(pair, context=None):
+        return {"direction": "LONG", "confidence": "high"}
+
+    with patch("agent._build_batch_context", return_value={}), \
+         patch("agent.run_agent", side_effect=fake_agent):
+        from agent import run_agent_batch
+        results = run_agent_batch(["BTC", "ETH", "SOL"])
+
+    assert len(results) == 3
+    assert {r["pair"] for r in results} == {"BTC", "ETH", "SOL"}
+
+def test_run_agent_batch_skips_error_pairs():
+    def fake_agent(pair, context=None):
+        if pair == "ETH":
+            return {"error": "API timeout"}
+        return {"direction": "LONG", "confidence": "high"}
+
+    with patch("agent._build_batch_context", return_value={}), \
+         patch("agent.run_agent", side_effect=fake_agent):
+        from agent import run_agent_batch
+        results = run_agent_batch(["BTC", "ETH", "SOL"])
+
+    assert len(results) == 2
+    assert all(r["pair"] != "ETH" for r in results)

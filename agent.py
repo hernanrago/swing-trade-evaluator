@@ -10,6 +10,7 @@ import json
 import logging
 import subprocess
 import traceback
+import threading
 import litellm
 from datetime import datetime, timedelta
 import functools
@@ -335,11 +336,14 @@ def _get_function_map():
     }
 
 _FUNCTION_MAP = None
+_FUNCTION_MAP_LOCK = threading.Lock()
 
 def _skill_fn(name):
     global _FUNCTION_MAP
     if _FUNCTION_MAP is None:
-        _FUNCTION_MAP = _get_function_map()
+        with _FUNCTION_MAP_LOCK:
+            if _FUNCTION_MAP is None:
+                _FUNCTION_MAP = _get_function_map()
     return _FUNCTION_MAP.get(name)
 
 
@@ -456,16 +460,29 @@ def run_agent(pair, context=None):
 
 
 def run_agent_batch(pairs):
+    """
+    Evaluates all pairs concurrently using ThreadPoolExecutor.
+    Builds batch context once (shared data pre-fetched), then submits one
+    run_agent call per pair. Pairs that return an error dict are skipped.
+    """
     context = _build_batch_context(pairs)
     log.info("Batch context built | keys=%s", list(context.keys()))
+
     results = []
-    for pair in pairs:
-        log.info("Batch evaluating pair=%s", pair)
-        rec = run_agent(pair, context=context)
-        if "error" not in rec:
-            results.append({**rec, "pair": pair})
-        else:
-            log.warning("Skipping pair=%s due to error: %s", pair, rec.get("error"))
+    with ThreadPoolExecutor(max_workers=min(MAX_BATCH_WORKERS, len(pairs))) as executor:
+        futures = {executor.submit(run_agent, pair, context): pair for pair in pairs}
+        for future in as_completed(futures):
+            pair = futures[future]
+            try:
+                rec = future.result()
+            except Exception as e:
+                log.warning("Pair %s raised exception: %s", pair, e)
+                continue
+            if "error" not in rec:
+                results.append({**rec, "pair": pair})
+            else:
+                log.warning("Skipping pair=%s due to error: %s", pair, rec.get("error"))
+
     return results
 
 
