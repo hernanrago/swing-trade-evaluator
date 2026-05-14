@@ -66,3 +66,48 @@ def test_funding_rate_fetches_when_no_context():
         result = evaluate_funding_rate("BTC", context=None)
     mock_get.assert_called_once()
     assert result["funding_rate"] == 0.0001
+
+
+# ── Task 4: evaluate_squeeze_risk ─────────────────────────────────────────
+
+def _gateio_stats_response():
+    return MagicMock(**{
+        "raise_for_status.return_value": None,
+        "json.return_value": [
+            {"lsr_account": "1.2", "open_interest_usd": "1000000", "long_liq_usd": "500", "short_liq_usd": "500"},
+            {"lsr_account": "1.2", "open_interest_usd": "1050000", "long_liq_usd": "600", "short_liq_usd": "400"},
+        ],
+    })
+
+def test_squeeze_risk_uses_context_skips_bingx_and_coingecko():
+    from evaluate_squeeze_risk import evaluate_squeeze_risk
+    ctx = {
+        "premium_index": {"BTC-USDT": {"lastFundingRate": 0.0001, "markPrice": 103500.0}},
+        "spot_prices": {"BTC": 103480.0},
+    }
+    with patch("evaluate_squeeze_risk.requests.get", return_value=_gateio_stats_response()) as mock_get:
+        result = evaluate_squeeze_risk("BTC", context=ctx)
+    # Only Gate.io should have been called (1 call), not BingX or CoinGecko
+    assert mock_get.call_count == 1
+    call_url = mock_get.call_args[0][0]
+    assert "gateio" in call_url
+
+def test_squeeze_risk_fetches_all_when_no_context():
+    from evaluate_squeeze_risk import evaluate_squeeze_risk
+    bingx_resp = MagicMock(**{
+        "raise_for_status.return_value": None,
+        "json.return_value": {"data": {"lastFundingRate": "0.0001", "markPrice": "103500"}},
+    })
+    coingecko_resp = MagicMock(**{
+        "raise_for_status.return_value": None,
+        "json.return_value": {"bitcoin": {"usd": 103480.0}},
+    })
+    def side_effect(url, **kwargs):
+        if "bingx" in url:
+            return bingx_resp
+        if "coingecko" in url:
+            return coingecko_resp
+        return _gateio_stats_response()
+    with patch("evaluate_squeeze_risk.requests.get", side_effect=side_effect) as mock_get:
+        evaluate_squeeze_risk("BTC", context=None)
+    assert mock_get.call_count == 3
