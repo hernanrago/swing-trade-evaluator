@@ -73,7 +73,7 @@ def fetch_gateio_stats(pair):
     resp.raise_for_status()
     return resp.json()
 
-def evaluate_squeeze_risk(pair="BTC"):
+def evaluate_squeeze_risk(pair="BTC", context=None):
     """
     Evaluates crowded-trade risk by scoring multiple market signals.
     Returns crowded_side, risk_level, and per-signal breakdown.
@@ -83,14 +83,21 @@ def evaluate_squeeze_risk(pair="BTC"):
 
     print(f"[*] Evaluating squeeze risk for {pair}...", file=sys.stderr)
 
-    # score: +N = long crowding, -N = short crowding
     score = 0
     notes = []
     mark_price = None
+    funding_rate = None
+
+    bingx_sym = _to_bingx_symbol(pair)
+    pm_entry = (context or {}).get("premium_index", {}).get(bingx_sym)
 
     # --- Signal 1: Funding rate (weight ±2 if extreme, ±1 if elevated) ---
     try:
-        funding_rate, mark_price = fetch_funding_and_mark(pair)
+        if pm_entry is not None:
+            funding_rate = float(pm_entry["lastFundingRate"])
+            mark_price   = float(pm_entry["markPrice"])
+        else:
+            funding_rate, mark_price = fetch_funding_and_mark(pair)
         fp = funding_rate * 100
         if funding_rate > SQUEEZE_FUNDING_VERY_HIGH:
             score += 2
@@ -113,7 +120,10 @@ def evaluate_squeeze_risk(pair="BTC"):
     basis_pct = None
     try:
         if mark_price:
-            spot = fetch_spot_price(pair)
+            base_sym = _base(pair)
+            spot = (context or {}).get("spot_prices", {}).get(base_sym)
+            if spot is None:
+                spot = fetch_spot_price(pair)
             if spot:
                 basis_pct = (mark_price - spot) / spot * 100
                 if basis_pct > SQUEEZE_BASIS_HIGH:
@@ -225,7 +235,7 @@ def evaluate_squeeze_risk(pair="BTC"):
         "score":         score,
         "warning":       warning,
         "details": {
-            "funding_rate":    round(funding_rate * 100, 4) if mark_price else None,
+            "funding_rate":    round(funding_rate * 100, 4) if funding_rate is not None else None,
             "basis_pct":       round(basis_pct, 3) if basis_pct is not None else None,
             "lsr":             round(lsr, 2) if lsr else None,
             "oi_change_pct":   round(oi_change_pct, 2) if oi_change_pct is not None else None,
