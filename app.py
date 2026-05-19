@@ -51,6 +51,29 @@ def _bingx_signed_get(path, params=None):
     return resp.json()
 
 
+def _fetch_realized_pnl(days: int) -> list[dict]:
+    start_ms = int(time.time() * 1000) - days * 86_400 * 1000
+    end_ms   = int(time.time() * 1000)
+    records  = []
+    while True:
+        data = _bingx_signed_get("/openApi/swap/v2/user/income", {
+            "incomeType": "REALIZED_PNL",
+            "startTime":  start_ms,
+            "endTime":    end_ms,
+            "limit":      1000,
+        })
+        if data.get("code") != 0:
+            raise ValueError(f"BingX error: {data.get('msg', 'unknown')}")
+        batch = data.get("data") or []
+        records.extend(batch)
+        if len(batch) < 1000:
+            break
+        end_ms = min(int(r["time"]) for r in batch) - 1
+        if end_ms < start_ms:
+            break
+    return [r for r in records if int(r["time"]) >= start_ms]
+
+
 def _compute_risk_levels(side, mark_price, structure):
     if not structure or "error" in structure:
         return None
