@@ -68,7 +68,10 @@ def _fetch_realized_pnl(days: int) -> list[dict]:
         records.extend(batch)
         if len(batch) < 1000:
             break
-        end_ms = min(int(r["time"]) for r in batch) - 1
+        times = [int(r["time"]) for r in batch if "time" in r]
+        if not times:
+            break
+        end_ms = min(times) - 1
         if end_ms < start_ms:
             break
     return [r for r in records if int(r["time"]) >= start_ms]
