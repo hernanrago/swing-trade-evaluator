@@ -1,0 +1,30 @@
+@baseUrl = http://localhost:8000
+
+### Health check
+GET {{baseUrl}}/health
+
+### Evaluar lista de pares
+### ["BTC","ETH","SOL","HYPE","ZEC","XRP","DOGE","XAU","LAB","PEPE","XAG","BSB","TAO","SUI","EDEN","BILL","AIA","AVAX","LINK","ADA"]
+POST {{baseUrl}}/evaluations
+Content-Type: application/json
+
+{
+  "pairs": ["BCH"]
+}
+
+### Top 10 pares por volumen (default)
+POST {{baseUrl}}/evaluations/top
+Content-Type: application/json
+
+{}
+
+### Top N pares por volumen
+POST {{baseUrl}}/evaluations/top
+Content-Type: application/json
+
+{
+  "top": 5
+}
+
+### Posiciones abiertas cruzadas con evaluaciones
+GET {{baseUrl}}/positions

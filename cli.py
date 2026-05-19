@@ -6,6 +6,8 @@ Agent logic lives in agent.py.
 
 import json
 import argparse
+from dotenv import load_dotenv
+load_dotenv()
 from agent import run_agent
 
 if __name__ == "__main__":
