@@ -338,6 +338,61 @@ def positions():
         return {"error": str(e)}, 500
 
 
+@app.route("/portfolio/equity", methods=["GET"])
+def portfolio_equity():
+    if not BINGX_API_KEY or not BINGX_API_SECRET:
+        return {"error": "BINGX_API_KEY and BINGX_API_SECRET must be set"}, 503
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        return {"error": "'days' must be an integer"}, 400
+
+    if days < 1 or days > 90:
+        return {"error": "'days' must be between 1 and 90"}, 400
+
+    try:
+        records = _fetch_realized_pnl(days)
+    except ValueError as e:
+        return {"error": str(e)}, 502
+    except Exception as e:
+        log.error("portfolio_equity unhandled: %s", traceback.format_exc())
+        return {"error": str(e)}, 500
+
+    records.sort(key=lambda r: int(r["time"]))
+
+    cumulative = 0.0
+    equity_curve = []
+    for r in records:
+        pnl = round(float(r["income"]), 8)
+        cumulative = round(cumulative + pnl, 8)
+        equity_curve.append({
+            "time":           datetime.fromtimestamp(int(r["time"]) / 1000).isoformat(),
+            "symbol":         r.get("symbol", ""),
+            "pnl":            pnl,
+            "cumulative_pnl": cumulative,
+        })
+
+    pnl_values = [p["pnl"] for p in equity_curve]
+    trade_count = len(pnl_values)
+    wins = sum(1 for p in pnl_values if p > 0)
+    summary = {
+        "total_pnl":   round(cumulative, 8),
+        "trade_count": trade_count,
+        "win_rate":    round(wins / trade_count, 4) if trade_count else 0.0,
+        "best_trade":  round(max(pnl_values), 8) if pnl_values else 0.0,
+        "worst_trade": round(min(pnl_values), 8) if pnl_values else 0.0,
+    }
+
+    log.info("portfolio/equity OK | days=%d trades=%d total_pnl=%s", days, trade_count, summary["total_pnl"])
+    return {
+        "timestamp":    datetime.now().isoformat(),
+        "period_days":  days,
+        "equity_curve": equity_curve,
+        "summary":      summary,
+    }
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     log.info("Starting | model=%s port=%d", LLM_MODEL, port)
