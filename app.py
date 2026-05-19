@@ -351,6 +351,8 @@ def portfolio_equity():
     if days < 1 or days > 90:
         return {"error": "'days' must be between 1 and 90"}, 400
 
+    log.info("GET /portfolio/equity | days=%d", days)
+
     try:
         records = _fetch_realized_pnl(days)
     except ValueError as e:
@@ -364,8 +366,8 @@ def portfolio_equity():
     cumulative = 0.0
     equity_curve = []
     for r in records:
-        pnl = round(float(r["income"]), 8)
-        cumulative = round(cumulative + pnl, 8)
+        pnl = round(float(r["income"]), 2)
+        cumulative = round(cumulative + pnl, 2)
         equity_curve.append({
             "time":           datetime.fromtimestamp(int(r["time"]) / 1000).isoformat(),
             "symbol":         r.get("symbol", ""),
@@ -377,11 +379,11 @@ def portfolio_equity():
     trade_count = len(pnl_values)
     wins = sum(1 for p in pnl_values if p > 0)
     summary = {
-        "total_pnl":   round(cumulative, 8),
+        "total_pnl":   round(cumulative, 2),
         "trade_count": trade_count,
         "win_rate":    round(wins / trade_count, 4) if trade_count else 0.0,
-        "best_trade":  round(max(pnl_values), 8) if pnl_values else 0.0,
-        "worst_trade": round(min(pnl_values), 8) if pnl_values else 0.0,
+        "best_trade":  round(max(pnl_values), 2) if pnl_values else 0.0,
+        "worst_trade": round(min(pnl_values), 2) if pnl_values else 0.0,
     }
 
     log.info("portfolio/equity OK | days=%d trades=%d total_pnl=%s", days, trade_count, summary["total_pnl"])
