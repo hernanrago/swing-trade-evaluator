@@ -328,7 +328,7 @@ _SYSTEM_PROMPT_SWING = """You are a crypto swing trade analyst. Evaluate the giv
 
 ### SYNTHESIS ALGORITHM
 
-After all six tools return results, reason step-by-step inside <thinking> tags before writing the JSON.
+After all seven tools return results, reason step-by-step inside <thinking> tags before writing the JSON.
 
 Inside <thinking>, you MUST:
 1. List each of the three directional signals and the direction it implies:
@@ -483,6 +483,7 @@ def execute_skill(skill_name, params, context=None, mode="swing"):
     fn = _skill_fn(skill_name)
     if fn is not None:
         try:
+            os.environ["TRADE_MODE"] = mode
             result = fn(pair, context=context)
             log.info("Skill %s OK (in-process) | result=%s", skill_name, json.dumps(result))
             return result
