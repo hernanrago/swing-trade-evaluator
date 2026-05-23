@@ -249,58 +249,72 @@ def combine_conclusions(struct_4h, struct_1d):
     return _CONCLUSION_TABLE.get((struct_4h, struct_1d), ("UNDEFINED", "low"))
 
 
-def generate_reasoning(tf_4h, tf_1d, conclusion, confidence):
+def generate_reasoning(tf_primary, tf_confirm, conclusion, confidence,
+                        primary_label="4H", confirm_label="1D"):
     """Generate a concise operative reasoning string."""
-    s4 = tf_4h["structure"]
-    s1 = tf_1d["structure"]
-    inv4 = tf_4h.get("invalidation")
-    inv1 = tf_1d.get("invalidation")
+    s4 = tf_primary["structure"]
+    s1 = tf_confirm["structure"]
+    inv4 = tf_primary.get("invalidation")
+    inv1 = tf_confirm.get("invalidation")
 
     def fmt(v):
         return f"${v:,.0f}" if v is not None else "N/A"
 
     if conclusion == "LONG" and confidence == "high":
         return (
-            f"Both 4H and 1D show HH/HL structure. "
-            f"4H bullish structure valid while price closes above {fmt(inv4)}. "
-            f"1D bullish structure valid while price closes above {fmt(inv1)}."
+            f"Both {primary_label} and {confirm_label} show HH/HL structure. "
+            f"{primary_label} bullish structure valid while price closes above {fmt(inv4)}. "
+            f"{confirm_label} bullish structure valid while price closes above {fmt(inv1)}."
         )
     elif conclusion == "SHORT" and confidence == "high":
         return (
-            f"Both 4H and 1D show LH/LL structure. "
-            f"4H bearish structure valid while price closes below {fmt(inv4)}. "
-            f"1D bearish structure valid while price closes below {fmt(inv1)}."
+            f"Both {primary_label} and {confirm_label} show LH/LL structure. "
+            f"{primary_label} bearish structure valid while price closes below {fmt(inv4)}. "
+            f"{confirm_label} bearish structure valid while price closes below {fmt(inv1)}."
         )
     elif conclusion in ("LONG", "SHORT") and confidence == "moderate":
-        dominant = "4H" if s4 != "UNDEFINED" else "1D"
-        inv = inv4 if s4 != "UNDEFINED" else inv1
+        if s4 != "UNDEFINED":
+            dominant, inv = primary_label, inv4
+            structure_str = s4
+        else:
+            dominant, inv = confirm_label, inv1
+            structure_str = s1
         direction = "bullish" if conclusion == "LONG" else "bearish"
         word = "above" if conclusion == "LONG" else "below"
         return (
-            f"{dominant} shows {s4 if dominant == '4H' else s1} structure ({direction}); "
+            f"{dominant} shows {structure_str} structure ({direction}); "
             f"the other timeframe is structurally undefined. "
             f"Structure valid while price closes {word} {fmt(inv)}."
         )
     elif conclusion == "CONFLICT":
         return (
-            f"4H shows {s4} structure while 1D shows {s1} structure. "
+            f"{primary_label} shows {s4} structure while {confirm_label} shows {s1} structure. "
             f"Timeframes conflict — no structural edge. Wait for alignment."
         )
     else:
-        return "Both 4H and 1D are structurally undefined. Recent swings do not confirm HH/HL or LH/LL."
+        return f"Both {primary_label} and {confirm_label} are structurally undefined. Recent swings do not confirm HH/HL or LH/LL."
 
 
 def evaluate_market_structure(pair="BTC", context=None):
     """
-    Full analysis: fetch candles, detect swings, classify structure on 4H and 1D.
-    Returns structured JSON dict.
+    Full analysis: fetch candles, detect swings, classify structure.
+    In swing mode: uses 4H (primary) and 1D (confirmation).
+    In intraday mode: uses 1H (primary) and 15m (confirmation).
+    Reads TRADE_MODE from os.environ at call time.
     """
+    trade_mode = os.environ.get("TRADE_MODE", "swing")
+
+    if trade_mode == "intraday":
+        timeframes = [("1H", "1h", MS_PIVOT_N_4H), ("15m", "15m", MS_PIVOT_N_1D)]
+    else:
+        timeframes = [("4H", "4h", MS_PIVOT_N_4H), ("1D", "1d", MS_PIVOT_N_1D)]
+
     instrument = _normalize_pair(pair)
     base = instrument.replace("-USDT-SWAP", "")
-    print(f"[*] Evaluating market structure for {instrument}...", file=sys.stderr)
+    print(f"[*] Evaluating market structure for {instrument} (mode={trade_mode})...", file=sys.stderr)
 
     results = {}
-    for bar, label, n in [("4H", "4h", MS_PIVOT_N_4H), ("1D", "1d", MS_PIVOT_N_1D)]:
+    for bar, label, n in timeframes:
         candles = get_candles(instrument, bar, MS_LOOKBACK)
         if isinstance(candles, dict) and "error" in candles:
             return {"pair": base, "instrument": instrument, "error": candles["error"]}
@@ -311,19 +325,26 @@ def evaluate_market_structure(pair="BTC", context=None):
         results[label] = tf_result
         print(f"[*] {bar}: structure={tf_result['structure']}", file=sys.stderr)
 
+    primary_bar, primary_label, _ = timeframes[0]
+    confirm_bar, confirm_label, _ = timeframes[1]
+
     conclusion, confidence = combine_conclusions(
-        results["4h"]["structure"], results["1d"]["structure"]
+        results[primary_label]["structure"], results[confirm_label]["structure"]
     )
-    reasoning = generate_reasoning(results["4h"], results["1d"], conclusion, confidence)
+    reasoning = generate_reasoning(
+        results[primary_label], results[confirm_label],
+        conclusion, confidence,
+        primary_bar, confirm_bar,
+    )
 
     return {
-        "pair":       base,
-        "instrument": instrument,
-        "4h":         results["4h"],
-        "1d":         results["1d"],
-        "conclusion": conclusion,
-        "confidence": confidence,
-        "reasoning":  reasoning,
+        "pair":          base,
+        "instrument":    instrument,
+        primary_label:   results[primary_label],
+        confirm_label:   results[confirm_label],
+        "conclusion":    conclusion,
+        "confidence":    confidence,
+        "reasoning":     reasoning,
     }
 
 
