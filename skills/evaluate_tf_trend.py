@@ -87,75 +87,77 @@ def calculate_trend(candles, min_required=None):
 
 def evaluate_tf_trend(pair="BTC", context=None):
     """
-    Analyzes 1D/1W trend and recommends direction.
-    Input: pair (e.g., BTC)
-    Output: recommended direction (LONG or SHORT)
+    Analyzes trend and recommends direction.
+    In swing mode: uses 1D (fast) and 1W (slow) timeframes.
+    In intraday mode: uses 4H (fast) and 1H (slow) timeframes.
+    Reads TRADE_MODE from os.environ at call time.
     """
-    
-    # Normalize pair
+    trade_mode = os.environ.get("TRADE_MODE", "swing")
+
+    if trade_mode == "intraday":
+        fast_tf, fast_limit, fast_label = "4h", KLINES_LIMIT_1D, "4H"
+        slow_tf, slow_limit, slow_label = "1h", KLINES_LIMIT_1D, "1H"
+    else:
+        fast_tf, fast_limit, fast_label = "1d", KLINES_LIMIT_1D, "1D"
+        slow_tf, slow_limit, slow_label = "1w", KLINES_LIMIT_1W, "1W"
+
     if not pair.endswith("USDT"):
         pair = pair.upper() + "USDT"
-    
-    print(f"[*] Evaluating trend for {pair}...", file=sys.stderr)
-    print(f"[*] Fetching 1D data...", file=sys.stderr)
-    candles_1d = fetch_klines(pair, "1d", KLINES_LIMIT_1D)
 
-    print(f"[*] Fetching 1W data...", file=sys.stderr)
-    candles_1w = fetch_klines(pair, "1w", KLINES_LIMIT_1W)
+    print(f"[*] Evaluating trend for {pair} (mode={trade_mode})...", file=sys.stderr)
+    print(f"[*] Fetching {fast_label} data...", file=sys.stderr)
+    candles_fast = fetch_klines(pair, fast_tf, fast_limit)
 
-    # Analyze trends
-    trend_1d = calculate_trend(candles_1d, min_required=MA_SHORT_PERIOD)
-    trend_1w = calculate_trend(candles_1w, min_required=max(MA_SHORT_PERIOD // 2, 20))
-    
-    if "error" in trend_1d or "error" in trend_1w:
-        return {"error": f"Calculation error - 1D: {trend_1d.get('error')}, 1W: {trend_1w.get('error')}"}
-    
-    # Determine recommendation based on both timeframes
-    bullish_1d = trend_1d["trend"] == "bullish"
-    bullish_1w = trend_1w["trend"] == "bullish"
-    
-    # Recommendation logic:
-    # - If both TFs are bullish → LONG (high confidence)
-    # - If both TFs are bearish → SHORT (high confidence)
-    # - If mixed → follow 1D (moderate confidence)
-    # - Sideways → LONG (low confidence, wait for clarity)
+    print(f"[*] Fetching {slow_label} data...", file=sys.stderr)
+    candles_slow = fetch_klines(pair, slow_tf, slow_limit)
 
-    if bullish_1d and bullish_1w:
+    trend_fast = calculate_trend(candles_fast, min_required=MA_SHORT_PERIOD)
+    trend_slow = calculate_trend(candles_slow, min_required=max(MA_SHORT_PERIOD // 2, 20))
+
+    if "error" in trend_fast or "error" in trend_slow:
+        return {"error": f"Calculation error - {fast_label}: {trend_fast.get('error')}, {slow_label}: {trend_slow.get('error')}"}
+
+    bullish_fast = trend_fast["trend"] == "bullish"
+    bullish_slow = trend_slow["trend"] == "bullish"
+
+    if bullish_fast and bullish_slow:
         recommended_direction = "LONG"
         confidence = "high"
         bias = "strong bullish bias on both timeframes"
-    elif not bullish_1d and not bullish_1w:
+    elif not bullish_fast and not bullish_slow:
         recommended_direction = "SHORT"
         confidence = "high"
         bias = "strong bearish bias on both timeframes"
-    elif bullish_1d:
+    elif bullish_fast:
         recommended_direction = "LONG"
         confidence = "moderate"
-        bias = "1D bullish but 1W mixed"
+        bias = f"{fast_label} bullish but {slow_label} mixed"
     else:
         recommended_direction = "SHORT"
         confidence = "moderate"
-        bias = "1W bearish but 1D mixed"
-    
-    # Build reasoning
-    reasoning = f"""
-1D Trend: {trend_1d['trend'].upper()} ({trend_1d['strength']})
-  Price: {trend_1d['current_price']} | MA{MA_SHORT_PERIOD}: {trend_1d[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_1d[f'ma{MA_LONG_PERIOD}']}
+        bias = f"{slow_label} bearish but {fast_label} mixed"
 
-1W Trend: {trend_1w['trend'].upper()} ({trend_1w['strength']})
-  Price: {trend_1w['current_price']} | MA{MA_SHORT_PERIOD}: {trend_1w[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_1w[f'ma{MA_LONG_PERIOD}']}
+    reasoning = f"""
+{fast_label} Trend: {trend_fast['trend'].upper()} ({trend_fast['strength']})
+  Price: {trend_fast['current_price']} | MA{MA_SHORT_PERIOD}: {trend_fast[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_fast[f'ma{MA_LONG_PERIOD}']}
+
+{slow_label} Trend: {trend_slow['trend'].upper()} ({trend_slow['strength']})
+  Price: {trend_slow['current_price']} | MA{MA_SHORT_PERIOD}: {trend_slow[f'ma{MA_SHORT_PERIOD}']} | MA{MA_LONG_PERIOD}: {trend_slow[f'ma{MA_LONG_PERIOD}']}
 
 Recommendation: {recommended_direction}
 Confidence: {confidence.upper()}
 Bias: {bias}
 """.strip()
-    
+
+    fast_key = f"trend_{fast_label.lower()}"
+    slow_key = f"trend_{slow_label.lower()}"
+
     return {
         "pair": pair,
         "recommended_direction": recommended_direction,
         "confidence": confidence,
-        "trend_1d": trend_1d,
-        "trend_1w": trend_1w,
+        fast_key: trend_fast,
+        slow_key: trend_slow,
         "reasoning": reasoning
     }
 
