@@ -117,7 +117,9 @@ def _build_batch_context(pairs):
     return ctx
 
 
-TOOLS = [
+VALID_MODES = {"swing", "intraday"}
+
+_TOOLS_SWING = [
     {
         "type": "function",
         "function": {
@@ -125,12 +127,7 @@ TOOLS = [
             "description": "Analyzes 1D/1W moving averages for a crypto pair and returns a trend direction recommendation (LONG or SHORT).",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol without the USDT suffix, e.g. BTC, ETH, SOL"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol without the USDT suffix, e.g. BTC, ETH, SOL"}},
                 "required": ["pair"]
             }
         }
@@ -142,12 +139,7 @@ TOOLS = [
             "description": "Fetches BTC dominance from CoinGecko and returns its directional impact on the given pair. Rising dominance is bullish for BTC and bearish for altcoins.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
                 "required": ["pair"]
             }
         }
@@ -159,12 +151,7 @@ TOOLS = [
             "description": "Fetches the current perpetual funding rate for a pair and returns a contrarian bias. High positive funding means crowded longs (bearish warning). High negative funding means crowded shorts (bullish warning). Use as a filter, not a standalone signal.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
                 "required": ["pair"]
             }
         }
@@ -176,12 +163,7 @@ TOOLS = [
             "description": "Analyzes OI change vs price change over a configurable window to validate directional bias. OI rising with price = new positions backing the move (strong signal). OI falling with price = likely liquidations or covering (weak signal). Use as participation validator, not standalone signal.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
                 "required": ["pair"]
             }
         }
@@ -193,12 +175,7 @@ TOOLS = [
             "description": "Detects crowded-trade risk by scoring 5 signals: funding rate, perpetual basis vs spot, long/short account ratio, OI trend, and liquidation bias. Returns crowded_side (long/short/neutral) and risk_level. High score = long crowding (long squeeze risk). Low score = short crowding (short squeeze risk). Must be called to assess whether a trade is entering a crowded position.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
                 "required": ["pair"]
             }
         }
@@ -215,12 +192,7 @@ TOOLS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"}},
                 "required": ["pair"]
             }
         }
@@ -237,19 +209,115 @@ TOOLS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pair": {
-                        "type": "string",
-                        "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"
-                    }
-                },
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"}},
                 "required": ["pair"]
             }
         }
     },
 ]
 
-SYSTEM_PROMPT = """You are a crypto swing trade analyst. Evaluate the given pair by calling all seven tools:
+_TOOLS_INTRADAY = [
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_tf_trend",
+            "description": "Analyzes 4H/1H moving averages for a crypto pair to determine intraday directional bias (bullish, bearish, or range). Call this first to establish the higher-timeframe bias before looking for entries.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol without the USDT suffix, e.g. BTC, ETH, SOL"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_btc_dominance",
+            "description": "Fetches BTC dominance from CoinGecko. Use as secondary context only — do not use as a blocker for intraday trades.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_funding_rate",
+            "description": "Fetches the current perpetual funding rate for a pair. High positive funding means crowded longs (bearish warning). High negative funding means crowded shorts (bullish warning). Use as a filter.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_open_interest",
+            "description": "Analyzes OI change vs price change to validate directional participation. OI rising with price = capital backing the intraday move. Use to confirm or deny whether the move has real participation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_squeeze_risk",
+            "description": "Detects crowded-trade risk by scoring funding, basis, L/S ratio, OI trend, and liquidation bias. Returns crowded_side and risk_level. Must be called to assess whether an intraday entry is crowded.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol, e.g. BTC, ETH, SOL"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_market_structure",
+            "description": (
+                "Analyzes intraday market structure on 1H and 15m timeframes using pivot-based swing detection. "
+                "Returns HH/HL (bullish), LH/LL (bearish), or UNDEFINED per timeframe, plus a combined "
+                "conclusion, confidence level, and invalidation/range levels. "
+                "Use to identify structural triggers (BOS/CHOCH, sweep, reclaim, retest) and assess trade location."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"}},
+                "required": ["pair"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_entry_zone",
+            "description": (
+                "Evaluates whether a clear, technically justified, risk-manageable intraday entry zone exists. "
+                "Combines S/R, FVG, order block, VWAP, range/retest/sweep context, and structure-based invalidation. "
+                "Returns pass/fail rating. Fail if price is in the middle of a range."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"pair": {"type": "string", "description": "Cryptocurrency symbol or instrument, e.g. BTC, ETH, SOL, BTCUSDT, BTC-USDT-SWAP"}},
+                "required": ["pair"]
+            }
+        }
+    },
+]
+
+TOOLS = {
+    "swing":    _TOOLS_SWING,
+    "intraday": _TOOLS_INTRADAY,
+}
+
+_SYSTEM_PROMPT_SWING = """You are a crypto swing trade analyst. Evaluate the given pair by calling all seven tools:
 1. evaluate_tf_trend — gets the 1D/1W trend direction
 2. evaluate_market_structure — analyzes 4H/1D swing structure (HH/HL or LH/LL) and returns invalidation levels
 3. evaluate_btc_dominance — gets the BTC dominance impact
@@ -300,6 +368,66 @@ Inside <thinking>, you MUST:
 }
 ```"""
 
+_SYSTEM_PROMPT_INTRADAY = """You are a crypto intraday trade analyst. Evaluate the given pair by calling all seven tools:
+1. evaluate_tf_trend — gets the 4H/1H bias (bullish/bearish/range)
+2. evaluate_market_structure — analyzes 1H/15m structure (BOS/CHOCH, sweep, retest) and returns invalidation levels
+3. evaluate_btc_dominance — gets BTC dominance as secondary context
+4. evaluate_funding_rate — gets the funding rate as a contrarian filter
+5. evaluate_open_interest — validates whether OI backs the price move
+6. evaluate_squeeze_risk — detects crowded-trade risk
+7. evaluate_entry_zone — validates if there is a technically acceptable entry zone near a level
+
+### THE INTRADAY GOLDEN RULE
+
+Do not enter unless bias, level, trigger, stop, target, and invalidation are all clear.
+If price is in the middle of a range, skip the trade.
+
+### SYNTHESIS ALGORITHM
+
+After all seven tools return results, reason step-by-step inside <thinking> tags before writing the JSON.
+
+Inside <thinking>, you MUST:
+1. Bias (4H/1H): evaluate_tf_trend → bullish / bearish / range / no-trade
+2. Structure trigger (1H/15m): evaluate_market_structure → BOS/CHOCH, sweep, reclaim, range break, retest; note invalidation level
+3. Entry location: evaluate_entry_zone → near liquidity/S&R/FVG/VWAP (pass) vs mid-range (fail)
+4. Crowding filter: evaluate_squeeze_risk + evaluate_funding_rate → squeeze risk present?
+5. Participation: evaluate_open_interest → OI backing the move?
+6. Dominance: evaluate_btc_dominance → secondary context only, not a blocker
+7. Choose direction: bias and structure trigger must agree. If range or undefined, direction = the triggered side.
+8. Determine confidence:
+   - "high"     → bias clear + structure trigger + entry location all pass, no squeeze
+   - "moderate" → 1 of the three fails OR squeeze warning (but not both)
+   - "low"      → 2+ fail OR (1 fail AND squeeze)
+9. State conclusion before writing JSON.
+
+### RESPONSE FORMAT
+
+<thinking>
+(step-by-step reasoning as described above)
+</thinking>
+
+```json
+{
+  "direction": "LONG" or "SHORT",
+  "confidence": "high", "moderate", or "low",
+  "aligned": true or false,
+  "squeeze_warning": null or warning string,
+  "reasoning": "3-4 sentence synthesis naming the key trigger and any risks",
+  "bias_summary": "one-line summary of 4H/1H bias direction and strength",
+  "structure_summary": "one-line summary of 1H/15m trigger: BOS/CHOCH/sweep/retest, invalidation level",
+  "entry_zone_summary": "one-line summary of entry-zone location quality and rating",
+  "funding_summary": "one-line summary of the funding rate signal",
+  "oi_summary": "one-line summary of the open interest signal",
+  "squeeze_summary": "one-line summary of the squeeze risk",
+  "dominance_summary": "one-line summary of BTC dominance as secondary context"
+}
+```"""
+
+SYSTEM_PROMPT = {
+    "swing":    _SYSTEM_PROMPT_SWING,
+    "intraday": _SYSTEM_PROMPT_INTRADAY,
+}
+
 _SCRIPT_MAP = {
     "evaluate_tf_trend":          "./skills/evaluate_tf_trend.py",
     "evaluate_btc_dominance":     "./skills/evaluate_btc_dominance.py",
@@ -347,10 +475,10 @@ def _skill_fn(name):
     return _FUNCTION_MAP.get(name)
 
 
-def execute_skill(skill_name, params, context=None):
+def execute_skill(skill_name, params, context=None, mode="swing"):
     """Calls a skill in-process if available, otherwise falls back to subprocess."""
     pair = params.get("pair", "BTC").upper()
-    log.info("Skill %s | pair=%s", skill_name, pair)
+    log.info("Skill %s | pair=%s mode=%s", skill_name, pair, mode)
 
     fn = _skill_fn(skill_name)
     if fn is not None:
@@ -374,6 +502,7 @@ def execute_skill(skill_name, params, context=None):
             text=True,
             timeout=SUBPROCESS_TIMEOUT,
             cwd=_BASE_DIR,
+            env={**os.environ, "TRADE_MODE": mode},
         )
         if result.returncode != 0:
             log.error("Skill %s failed: %s", skill_name, result.stderr.strip())
@@ -389,15 +518,19 @@ def execute_skill(skill_name, params, context=None):
         return {"error": str(e)}
 
 
-def run_agent(pair, context=None):
+def run_agent(pair, mode="swing", context=None):
     """
     Orchestrates the analysis via LiteLLM, calling skills as tools.
     Returns the parsed JSON recommendation dict.
     """
-    log.info("Agent start | pair=%s model=%s", pair, LLM_MODEL)
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unknown mode: {mode!r}. Must be one of {sorted(VALID_MODES)}")
+    os.environ["TRADE_MODE"] = mode
+
+    log.info("Agent start | pair=%s mode=%s model=%s", pair, mode, LLM_MODEL)
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Analyze {pair} for swing trading direction."}
+        {"role": "system", "content": SYSTEM_PROMPT[mode]},
+        {"role": "user", "content": f"Analyze {pair} for {'intraday' if mode == 'intraday' else 'swing'} trading direction."}
     ]
 
     for iteration in range(1, MAX_AGENT_ITERATIONS + 1):
@@ -407,7 +540,7 @@ def run_agent(pair, context=None):
             max_tokens=MAX_TOKENS,
             temperature=0,
             messages=messages,
-            tools=TOOLS,
+            tools=TOOLS[mode],
         )
 
         message = response.choices[0].message
@@ -417,19 +550,16 @@ def run_agent(pair, context=None):
         if finish_reason == "stop":
             log.info("Agent done | raw=%s", message.content)
             content = message.content
-            # 1. Try ```json ... ``` block (preferred — CoT response format)
             match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
             if match:
                 try:
                     return json.loads(match.group(1))
                 except json.JSONDecodeError:
                     pass
-            # 2. Try bare JSON object
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
                 pass
-            # 3. Try first {...} block
             match = re.search(r'\{.*\}', content, re.DOTALL)
             if match:
                 try:
@@ -444,7 +574,7 @@ def run_agent(pair, context=None):
             for tc in message.tool_calls:
                 args = json.loads(tc.function.arguments)
                 log.info("Tool call: %s | args=%s", tc.function.name, args)
-                skill_result = execute_skill(tc.function.name, args, context=context)
+                skill_result = execute_skill(tc.function.name, args, context=context, mode=mode)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -459,18 +589,16 @@ def run_agent(pair, context=None):
     return {"error": f"Agent did not converge after {MAX_AGENT_ITERATIONS} iterations"}
 
 
-def run_agent_batch(pairs):
+def run_agent_batch(pairs, mode="swing"):
     """
     Evaluates all pairs concurrently using ThreadPoolExecutor.
-    Builds batch context once (shared data pre-fetched), then submits one
-    run_agent call per pair. Pairs that return an error dict are skipped.
     """
     context = _build_batch_context(pairs)
-    log.info("Batch context built | keys=%s", list(context.keys()))
+    log.info("Batch context built | keys=%s mode=%s", list(context.keys()), mode)
 
     results = []
     with ThreadPoolExecutor(max_workers=min(MAX_BATCH_WORKERS, len(pairs))) as executor:
-        futures = {executor.submit(run_agent, pair, context): pair for pair in pairs}
+        futures = {executor.submit(run_agent, pair, mode, context): pair for pair in pairs}
         for future in as_completed(futures):
             pair = futures[future]
             try:
@@ -486,7 +614,7 @@ def run_agent_batch(pairs):
     return results
 
 
-_MULTI_SYSTEM_PROMPT = """You are a crypto swing trade analyst. Below is an array of evaluations for multiple pairs. Each entry contains the full analysis for one symbol.
+_MULTI_SYSTEM_PROMPT_SWING = """You are a crypto swing trade analyst. Below is an array of evaluations for multiple pairs. Each entry contains the full analysis for one symbol.
 
 ```json
 {evaluations}
@@ -522,20 +650,61 @@ Review the array and produce a ranked summary:
 ]
 ```"""
 
+_MULTI_SYSTEM_PROMPT_INTRADAY = """You are a crypto intraday trade analyst. Below is an array of intraday evaluations for multiple pairs. Each entry contains the full intraday analysis for one symbol.
 
-def run_synthesis(evaluations):
+```json
+{evaluations}
+```
+
+### YOUR TASK
+
+Review the array and produce a ranked summary:
+
+1. Rank the pairs by intraday trading quality: direction, confidence, aligned, squeeze_warning.
+2. Identify the top 3 intraday opportunities (best LONG and SHORT candidates).
+3. Flag any pairs with high squeeze risk.
+4. Highlight pairs where bias or structure trigger is unclear or mid-range.
+
+### RESPONSE FORMAT
+
+<thinking>
+(rank by opportunity quality, note key conflicts, note squeeze warnings)
+</thinking>
+
+```json
+[
+  {
+    "rank": 1,
+    "pair": "BTCUSDT",
+    "direction": "LONG",
+    "confidence": "high",
+    "aligned": true,
+    "squeeze_warning": null,
+    "summary": "2-3 sentence synthesis"
+  },
+  ...
+]
+```"""
+
+_MULTI_SYSTEM_PROMPT = {
+    "swing":    _MULTI_SYSTEM_PROMPT_SWING,
+    "intraday": _MULTI_SYSTEM_PROMPT_INTRADAY,
+}
+
+
+def run_synthesis(evaluations, mode="swing"):
     """
     Sends a batch of per-pair evaluations to the LLM for ranked synthesis.
     Returns a list of ranked recommendation dicts.
     """
-    log.info("Synthesis start | num_pairs=%d", len(evaluations))
+    log.info("Synthesis start | num_pairs=%d mode=%s", len(evaluations), mode)
 
     for eval_item in evaluations:
         if "pair" not in eval_item:
             eval_item["pair"] = "UNKNOWN"
 
     messages = [
-        {"role": "system", "content": _MULTI_SYSTEM_PROMPT},
+        {"role": "system", "content": _MULTI_SYSTEM_PROMPT[mode]},
         {"role": "user", "content": f"Synthesize the following {len(evaluations)} evaluations:\n\n{json.dumps(evaluations, indent=2)}"}
     ]
 

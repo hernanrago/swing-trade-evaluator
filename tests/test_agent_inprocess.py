@@ -131,7 +131,7 @@ def test_run_agent_batch_runs_pairs_concurrently():
     lock = threading.Lock()
     running = [0]
 
-    def slow_agent(pair, context=None):
+    def slow_agent(pair, mode="swing", context=None):
         with lock:
             running[0] += 1
             active_at_once.append(running[0])
@@ -148,7 +148,7 @@ def test_run_agent_batch_runs_pairs_concurrently():
     assert max(active_at_once) >= 2, "Pairs are running serially, not in parallel"
 
 def test_run_agent_batch_collects_all_successful_results():
-    def fake_agent(pair, context=None):
+    def fake_agent(pair, mode="swing", context=None):
         return {"direction": "LONG", "confidence": "high"}
 
     with patch("agent._build_batch_context", return_value={}), \
@@ -160,7 +160,7 @@ def test_run_agent_batch_collects_all_successful_results():
     assert {r["pair"] for r in results} == {"BTC", "ETH", "SOL"}
 
 def test_run_agent_batch_skips_error_pairs():
-    def fake_agent(pair, context=None):
+    def fake_agent(pair, mode="swing", context=None):
         if pair == "ETH":
             return {"error": "API timeout"}
         return {"direction": "LONG", "confidence": "high"}
