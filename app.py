@@ -167,7 +167,7 @@ def evaluations():
     Output: { "timestamp": "...", "ranked": [...], "evaluations": [...] }
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         pairs = data.get("pairs")
         if not pairs or not isinstance(pairs, list):
             return {"error": "Missing or invalid 'pairs' parameter — expected a non-empty list"}, 400
@@ -215,7 +215,7 @@ def evaluations_top():
     Output: { "timestamp": "...", "ranked": [...], "evaluations": [...] }
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         top_n = int(data.get("top", 10))
         mode = data.get("mode", "swing")
         if mode not in VALID_MODES:
