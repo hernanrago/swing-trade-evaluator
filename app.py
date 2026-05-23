@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import litellm
 
-from agent import run_agent, run_agent_batch, run_synthesis, execute_skill, LLM_MODEL, MAX_TOKENS, MAX_AGENT_ITERATIONS, SUBPROCESS_TIMEOUT
+from agent import run_agent, run_agent_batch, run_synthesis, execute_skill, LLM_MODEL, MAX_TOKENS, MAX_AGENT_ITERATIONS, SUBPROCESS_TIMEOUT, VALID_MODES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -173,13 +173,16 @@ def evaluations():
             return {"error": "Missing or invalid 'pairs' parameter — expected a non-empty list"}, 400
 
         pairs = [p.upper() for p in pairs]
-        log.info("POST /evaluations | pairs=%s", pairs)
+        mode = data.get("mode", "swing")
+        if mode not in VALID_MODES:
+            return {"error": f"Unknown mode '{mode}' — must be one of {sorted(VALID_MODES)}"}, 400
+        log.info("POST /evaluations | pairs=%s mode=%s", pairs, mode)
 
-        evals = run_agent_batch(pairs)
+        evals = run_agent_batch(pairs, mode=mode)
         if not evals:
             return {"error": "All evaluations failed"}, 502
 
-        ranked = run_synthesis(evals)
+        ranked = run_synthesis(evals, mode=mode)
 
         ranked_list = ranked if isinstance(ranked, list) else []
         log.info("evaluations OK | evaluated=%d ranked=%d", len(evals), len(ranked_list))
@@ -214,7 +217,10 @@ def evaluations_top():
     try:
         data = request.get_json() or {}
         top_n = int(data.get("top", 10))
-        log.info("POST /evaluations/top | top=%d", top_n)
+        mode = data.get("mode", "swing")
+        if mode not in VALID_MODES:
+            return {"error": f"Unknown mode '{mode}' — must be one of {sorted(VALID_MODES)}"}, 400
+        log.info("POST /evaluations/top | top=%d mode=%s", top_n, mode)
 
         resp = requests.get("https://open-api.bingx.com/openApi/swap/v2/quote/ticker", timeout=10)
         resp.raise_for_status()
@@ -238,11 +244,11 @@ def evaluations_top():
         pairs = [s.replace("-USDT-SWAP", "") for s in top_symbols]
         log.info("Top %d pairs by quoteVolume: %s", top_n, pairs)
 
-        evals = run_agent_batch(pairs)
+        evals = run_agent_batch(pairs, mode=mode)
         if not evals:
             return {"error": "All evaluations failed"}, 502
 
-        ranked = run_synthesis(evals)
+        ranked = run_synthesis(evals, mode=mode)
 
         ranked_list = ranked if isinstance(ranked, list) else []
         log.info("evaluations/top OK | evaluated=%d ranked=%d", len(evals), len(ranked_list))
