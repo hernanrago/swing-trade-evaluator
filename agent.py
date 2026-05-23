@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Swing Trade Agent — core logic.
+Swing/Intraday Trade Agent — core logic.
 Shared by app.py (HTTP server) and cli.py (CLI).
 """
 

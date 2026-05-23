@@ -288,13 +288,13 @@ def positions():
             return {"timestamp": datetime.now().isoformat(), "positions": []}
 
         pairs = list({p["symbol"].split("-USDT")[0] for p in raw})
-        evals = run_agent_batch(pairs)
+        evals = run_agent_batch(pairs, mode="swing")
         eval_map = {e["pair"]: e for e in evals}
 
         # Fetch structure for each pair in parallel (candles already cached from run_agent_batch)
         structure_map = {}
         with ThreadPoolExecutor(max_workers=len(pairs)) as executor:
-            futures = {executor.submit(execute_skill, "evaluate_market_structure", {"pair": p}): p for p in pairs}
+            futures = {executor.submit(execute_skill, "evaluate_market_structure", {"pair": p}, mode="swing"): p for p in pairs}
             for future in as_completed(futures):
                 p = futures[future]
                 try:

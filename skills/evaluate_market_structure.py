@@ -244,9 +244,9 @@ _CONCLUSION_TABLE = {
 }
 
 
-def combine_conclusions(struct_4h, struct_1d):
+def combine_conclusions(struct_primary, struct_confirm):
     """Returns (conclusion, confidence) from per-timeframe structures."""
-    return _CONCLUSION_TABLE.get((struct_4h, struct_1d), ("UNDEFINED", "low"))
+    return _CONCLUSION_TABLE.get((struct_primary, struct_confirm), ("UNDEFINED", "low"))
 
 
 def generate_reasoning(tf_primary, tf_confirm, conclusion, confidence,
