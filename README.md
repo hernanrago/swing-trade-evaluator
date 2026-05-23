@@ -1,16 +1,56 @@
-# Swing Trade Evaluator
+# Swing / Intraday Trade Evaluator
 
-Agent-assisted checklist for evaluating BTC perpetual futures swing trades at 5x leverage.
+LLM-orchestrated agent that evaluates crypto perpetual futures setups across two modes:
 
-Run the agent against any pair:
+- **Swing** — 1D/1W trend + 4H/1D structure. For multi-day position trades.
+- **Intraday** — 4H/1H bias + 1H/15m structure. For same-session entries.
+
+---
+
+## Quickstart
 
 ```bash
+# Swing evaluation (default)
 python3 cli.py BTC
+
+# Intraday evaluation
+python3 cli.py BTC --mode intraday
+
+# HTTP server
+python3 app.py
 ```
 
 ---
 
-## Checklist — Long/Short BTC Perp 5x Swing Trade
+## HTTP API
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Status check |
+| `POST` | `/evaluations` | Evaluate a list of pairs |
+| `POST` | `/evaluations/top` | Evaluate top N pairs by BingX volume |
+| `GET` | `/positions` | Open positions crossed with swing evaluations |
+| `GET` | `/portfolio/equity` | Realized PnL equity curve (BingX) |
+
+### Evaluate pairs
+
+```json
+POST /evaluations
+{ "pairs": ["BTC", "ETH"], "mode": "intraday" }
+```
+
+`mode` is optional (default `"swing"`). Valid values: `"swing"`, `"intraday"`.
+
+### Top N by volume
+
+```json
+POST /evaluations/top
+{ "top": 10, "mode": "swing" }
+```
+
+---
+
+## Swing Mode Checklist
 
 Legend: 🤖 = covered by a skill | 👤 = manual review required
 
@@ -20,14 +60,14 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 - [ ] 🤖 BTC dominance (BTC.D) supports the expected move — `evaluate_btc_dominance`
 - [ ] 👤 No imminent macro event (CPI, FOMC, rate decision) in the next 24–48h
 - [ ] 🤖 Current funding rate reviewed — very positive = bearish bias, very negative = bullish bias — `evaluate_funding_rate`
-- [ ] 🤖 Open Interest trending consistently with the move (OI rising with price = confirmation) — `evaluate_open_interest`
+- [ ] 🤖 Open Interest trending consistently with the move — `evaluate_open_interest`
 
 ### 🕯️ Technical Setup
 
 - [ ] 🤖 Clear market structure on 4H/1D (HH-HL for longs, LH-LL for shorts), including invalidation/range levels — `evaluate_market_structure`
 - [ ] 🤖 Entry zone defined (support/resistance, FVG, OB, Fibonacci retracement) — `evaluate_entry_zone`
 - [ ] 👤 Confluence of at least 2 indicators or levels at entry
-- [ ] 👤 Volume confirms the setup (do not enter against growing volume in the opposite direction)
+- [ ] 👤 Volume confirms the setup
 - [ ] 👤 No significant RSI or MACD divergence against the trade
 
 ### 💰 Risk Management
@@ -40,31 +80,82 @@ Legend: 🤖 = covered by a skill | 👤 = manual review required
 
 ### 🎯 Exit Plan
 
-- [ ] 👤 TP1 defined at a key technical level (partial exit, e.g. 50% of position)
+- [ ] 👤 TP1 defined at a key technical level (partial exit)
 - [ ] 👤 TP2 / final TP defined
-- [ ] 👤 Trailing stop or price-based exit criterion defined if the trade extends
+- [ ] 👤 Trailing stop or price-based exit criterion defined
 - [ ] 👤 Maximum time in the trade defined (swing = days, not indefinite weeks)
 
 ### ⚙️ Operational Execution
 
 - [ ] 👤 Entry order type: limit or market? (limit preferred to avoid slippage)
-- [ ] 👤 Stop loss placed **on the platform** before stepping away from the trade
-- [ ] 👤 Margin mode reviewed: **Cross vs Isolated** — for 5x swing, prefer **Isolated**
+- [ ] 👤 Stop loss placed **on the platform** before stepping away
+- [ ] 👤 Margin mode: prefer **Isolated** for 5x swing
 - [ ] 👤 Liquidation price visible and sufficiently far from current price
-- [ ] 👤 No opposing position open in the same asset causing confusion
+- [ ] 👤 No opposing position open in the same asset
 
 > **Golden rule at 5x:** Leverage amplifies mistakes as much as gains. If the setup does not have at least 7–8 items checked, do not enter.
 
 ---
 
+## Intraday Mode Checklist
+
+### 📊 Bias (4H / 1H)
+
+- [ ] 🤖 4H/1H bias is directionally clear (bullish or bearish — not range) — `evaluate_tf_trend`
+- [ ] 🤖 BTC dominance noted as secondary context — `evaluate_btc_dominance`
+- [ ] 🤖 Funding rate not extreme in the same direction as the trade — `evaluate_funding_rate`
+
+### 🕯️ Structural Trigger (1H / 15m)
+
+- [ ] 🤖 BOS, CHOCH, sweep, or retest identified on 1H/15m — `evaluate_market_structure`
+- [ ] 🤖 Entry zone near a key level (S/R, FVG, VWAP) — not mid-range — `evaluate_entry_zone`
+- [ ] 🤖 OI backing the directional move — `evaluate_open_interest`
+- [ ] 🤖 No high squeeze risk on the entry side — `evaluate_squeeze_risk`
+
+### 💰 Risk Management
+
+- [ ] 👤 Invalidation level clearly defined (structure-based)
+- [ ] 👤 Stop placed below/above the structural trigger, not the signal candle
+- [ ] 👤 R:R minimum 1:2 against the session's next key level
+- [ ] 👤 No open macro event in the next 2–4h
+
+> **Intraday golden rule:** Do not enter unless bias, level, trigger, stop, target, and invalidation are all clear. If price is in the middle of a range, skip the trade.
+
+---
+
 ## Skills
 
-| Skill | What it evaluates |
+| Skill | Swing timeframes | Intraday timeframes | What it evaluates |
+|---|---|---|---|
+| `evaluate_tf_trend` | 1D / 1W | 4H / 1H | Trend direction via moving averages — recommends LONG or SHORT |
+| `evaluate_market_structure` | 4H / 1D | 1H / 15m | Swing structure (HH/HL, LH/LL), conclusion, confidence, invalidation levels |
+| `evaluate_btc_dominance` | — | — | Whether BTC dominance supports the expected move |
+| `evaluate_funding_rate` | — | — | Funding rate level and contrarian bias |
+| `evaluate_open_interest` | — | — | OI vs price consistency — validates or weakens directional bias |
+| `evaluate_squeeze_risk` | — | — | Crowded trade detection — funding, L/S ratio, basis, OI, liquidation bias |
+| `evaluate_entry_zone` | — | — | Entry-zone quality — S/R, FVG, OB, Fibonacci, range/retest/sweep, structural invalidation |
+
+Skills marked `—` use the same logic regardless of mode.
+
+---
+
+## Architecture
+
+```
+cli.py / app.py  →  agent.py (run_agent, mode)  →  LiteLLM + Claude  →  skills/*.py
+```
+
+- `agent.py` holds `TOOLS` and `SYSTEM_PROMPT` as dicts keyed by `"swing"` / `"intraday"`.
+- Skills read `TRADE_MODE` from the environment at call time to switch timeframes.
+- `run_agent(pair, mode="swing")` is the single orchestration entry point.
+
+## Data Sources
+
+| Source | Used by |
 |---|---|
-| `evaluate_tf_trend` | 1D and 1W trend direction — recommends LONG or SHORT |
-| `evaluate_market_structure` | 4H and 1D swing structure (HH/HL, LH/LL, or undefined), with combined conclusion, confidence, and invalidation/range levels |
-| `evaluate_btc_dominance` | Whether BTC dominance supports the expected move |
-| `evaluate_funding_rate` | Funding rate level and directional bias |
-| `evaluate_open_interest` | OI vs price consistency — validates or weakens the directional bias |
-| `evaluate_squeeze_risk` | Crowded trade detection — combines funding, L/S ratio, basis, OI, and liquidation bias |
-| `evaluate_entry_zone` | Entry-zone quality validator — detects confluence zones (S/R, FVG, OB, Fibonacci, range/retest/sweep), rating, and structural invalidation |
+| BingX | `evaluate_tf_trend`, klines for trend; portfolio equity curve |
+| OKX | `evaluate_market_structure`, candles |
+| Bybit | `evaluate_funding_rate`, `evaluate_squeeze_risk`, `evaluate_open_interest` |
+| CoinGecko | `evaluate_btc_dominance` |
+
+All sources are public, unauthenticated endpoints (except BingX portfolio/positions which require API keys).
