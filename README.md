@@ -20,6 +20,39 @@ python3 cli.py BTC --mode intraday
 python3 app.py
 ```
 
+## Railway Cron
+
+This repo includes `railway.toml` so you can run the evaluator from a Railway Cron service.
+
+- Default command: `python3 cli.py BTC`
+- Override command with Railway env var `RAILWAY_RUN_COMMAND`
+
+Examples:
+
+```bash
+# Run intraday for ETH every cron tick
+RAILWAY_RUN_COMMAND="python3 cli.py ETH --mode intraday"
+
+# Evaluate swing on SOL
+RAILWAY_RUN_COMMAND="python3 cli.py SOL --mode swing"
+```
+
+Suggested Railway setup:
+
+1. Create a new **Cron** service connected to this repo.
+2. Set the schedule expression (current GitHub cron): `0 */2 * * *` (every 2 hours).
+3. Add required env vars (`ANTHROPIC_API_KEY`, optional skill configs, and `RAILWAY_RUN_COMMAND`).
+4. Deploy and check logs for each execution.
+
+If you are migrating the separate notification cron (`swing-trade-evaluator-cron`), mirror these vars in Railway from GitHub Secrets:
+
+- `EVAL_BASE_URL`
+- `EMAIL_TO`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `PAIRS`
+- `BATCH_SIZE`
+
 ---
 
 ## HTTP API
