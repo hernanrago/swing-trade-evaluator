@@ -1,2 +1,2 @@
 [deploy]
-startCommand = "sh -c '${RAILWAY_RUN_COMMAND:-python3 cli.py BTC}'"
+startCommand = "sh -c '${RAILWAY_RUN_COMMAND:-python3 cli.py}'"
