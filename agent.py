@@ -24,7 +24,7 @@ LLM_MODEL            = os.environ.get("LLM_MODEL",             "claude-opus-4-7"
 MAX_TOKENS           = int(os.environ.get("MAX_TOKENS",           "4096"))
 MAX_AGENT_ITERATIONS = int(os.environ.get("MAX_AGENT_ITERATIONS",  "10"))
 SUBPROCESS_TIMEOUT   = int(os.environ.get("SUBPROCESS_TIMEOUT",    "30"))
-MAX_BATCH_WORKERS    = int(os.environ.get("MAX_BATCH_WORKERS", "10"))
+MAX_BATCH_WORKERS    = int(os.environ.get("MAX_BATCH_WORKERS", "3"))
 
 # --- Timed cache decorator ---
 def timed_cache(seconds=300):
