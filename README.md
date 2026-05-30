@@ -40,18 +40,23 @@ RAILWAY_RUN_COMMAND="python3 cli.py SOL --mode swing"
 Suggested Railway setup:
 
 1. Create a new **Cron** service connected to this repo.
-2. Set the schedule expression (current GitHub cron): `0 */2 * * *` (every 2 hours).
+2. Set the schedule expression: `0 */2 * * *` (every 2 hours).
 3. Add required env vars (`ANTHROPIC_API_KEY`, optional skill configs, and `RAILWAY_RUN_COMMAND`).
 4. Deploy and check logs for each execution.
 
-If you are migrating the separate notification cron (`swing-trade-evaluator-cron`), mirror these vars in Railway from GitHub Secrets:
+### Email notifications
 
-- `EVAL_BASE_URL`
-- `EMAIL_TO`
-- `SMTP_USER`
-- `SMTP_PASSWORD`
-- `PAIRS`
-- `BATCH_SIZE`
+The CLI sends an HTML email with results after each evaluation. Set at least one sender option:
+
+| Variable | Description |
+|---|---|
+| `EMAIL_TO` | Recipient address (required) |
+| `RESEND_API_KEY` | Resend API key (takes priority) |
+| `EMAIL_FROM` | Sender for Resend (default: `onboarding@resend.dev`) |
+| `SMTP_USER` | Gmail address (used if no Resend key) |
+| `SMTP_PASSWORD` | Gmail App Password (16-char, no spaces) |
+
+If neither `RESEND_API_KEY` nor `SMTP_USER` is set, email is silently skipped.
 
 ---
 
